@@ -1,0 +1,8 @@
+{
+  "name": "pyn",
+  "version": "0.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/Thinkmill/pyn",
+  "author": "mitchellhamilton <mitchell@hamil.town>",
+  "license": "MIT"
+}
