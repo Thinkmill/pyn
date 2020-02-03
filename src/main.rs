@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use serde_json;
+use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fmt;
@@ -8,35 +8,37 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-#[derive(PartialEq)]
-enum RootPackageManager {
+enum PackageManager {
     PNPM,
     NPM,
     Yarn,
+    Bolt,
 }
 
-impl fmt::Display for RootPackageManager {
+impl fmt::Display for PackageManager {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            RootPackageManager::PNPM => write!(f, "pnpm"),
-            RootPackageManager::NPM => write!(f, "npm"),
-            RootPackageManager::Yarn => write!(f, "Yarn"),
+            PackageManager::PNPM => write!(f, "pnpm"),
+            PackageManager::NPM => write!(f, "npm"),
+            PackageManager::Yarn => write!(f, "Yarn"),
+            PackageManager::Bolt => write!(f, "Bolt"),
         }
     }
 }
 
-impl RootPackageManager {
+impl PackageManager {
     fn cmd(&self) -> Command {
         Command::new(match self {
-            RootPackageManager::PNPM => "pnpm",
-            RootPackageManager::NPM => "npm",
-            RootPackageManager::Yarn => "yarn",
+            PackageManager::PNPM => "pnpm",
+            PackageManager::NPM => "npm",
+            PackageManager::Yarn => "yarn",
+            PackageManager::Bolt => "bolt",
         })
     }
 }
 
 struct ProjectRoot {
-    package_manager: RootPackageManager,
+    package_manager: PackageManager,
     dir: Box<Path>,
 }
 
@@ -50,14 +52,6 @@ struct PackageJson {
     name: String,
     scripts: HashMap<String, String>,
 }
-
-// enum PkgManager {
-//     pnpm,
-//     npm,
-//     yarn,
-//     bolt,
-//     none,
-// }
 
 fn get_package_root(path: &Path) -> io::Result<PackageRoot> {
     let package_json_path = path.join(Path::new("package.json"));
@@ -83,23 +77,35 @@ fn get_project_root(path: &Path) -> io::Result<ProjectRoot> {
         let entry = res?;
         let file_name = String::from(entry.file_name().to_string_lossy());
         if file_name == "yarn.lock" {
+            let package_json_content_string =
+                fs::read_to_string(path.join(Path::new("package.json")))?;
+            let package_json_content: Value = serde_json::from_str(&package_json_content_string)?;
+            let package_manager = if package_json_content
+                .as_object()
+                .unwrap()
+                .contains_key("bolt")
+            {
+                PackageManager::Bolt
+            } else {
+                PackageManager::Yarn
+            };
             let project = ProjectRoot {
                 dir: Box::from(path),
-                package_manager: RootPackageManager::Yarn,
+                package_manager,
             };
             return Ok(project);
         }
         if file_name == "pnpm-lock.yaml" {
             let project = ProjectRoot {
                 dir: Box::from(path),
-                package_manager: RootPackageManager::PNPM,
+                package_manager: PackageManager::PNPM,
             };
             return Ok(project);
         }
         if file_name == "package-lock.json" {
             let project = ProjectRoot {
                 dir: Box::from(path),
-                package_manager: RootPackageManager::NPM,
+                package_manager: PackageManager::NPM,
             };
             return Ok(project);
         }
