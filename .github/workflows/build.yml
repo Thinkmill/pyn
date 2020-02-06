@@ -39,7 +39,8 @@ jobs:
       - run: strip target/release/${{ matrix.binary }}
       - name: Log
         run: cd target/release && ls
-      - uses: actions/upload-artifact@v1
-          with:
-            name: ${{ matrix.target }}-${{ matrix.binary }}
-            path: target/release/${{ matrix.binary }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v1
+        with:
+          name: ${{ matrix.target }}-${{ matrix.binary }}
+          path: target/release/${{ matrix.binary }}
