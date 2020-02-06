@@ -32,6 +32,7 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release && strip target/release/pyn
+        run: cargo build --release
+      - run: strip target/release/pyn
       - name: Log
         run: cd target/release && ls
