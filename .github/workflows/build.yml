@@ -12,13 +12,16 @@ jobs:
           - build: linux
             os: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            binary: pyn
           - build: macos
             os: macos-latest
             rust: stable
             target: x86_64-apple-darwin
+            binary: pyn
           - build: windows
             os: windows-latest
             target: x86_64-pc-windows-msvc
+            binary: pyn.exe
     steps:
       - name: Checkout
         uses: actions/checkout@v1
@@ -33,6 +36,6 @@ jobs:
 
       - name: Build
         run: cargo build --release
-      - run: strip target/release/pyn
+      - run: strip target/release/${{ matrix.binary }}
       - name: Log
         run: cd target/release && ls
