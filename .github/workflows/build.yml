@@ -37,8 +37,6 @@ jobs:
       - name: Build
         run: cargo build --release
       - run: strip target/release/${{ matrix.binary }}
-      - name: Log
-        run: cd target/release && ls
       - name: Upload artifacts
         uses: actions/upload-artifact@v1
         with:
