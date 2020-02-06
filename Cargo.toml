@@ -1,5 +1,7 @@
 [package]
 name = "pyn"
+description = "A wrapper for the JavaScript package managers: npm, pnpm, Yarn and Bolt"
+licence = "MIT"
 version = "0.1.0"
 authors = ["mitchellhamilton <mitchell@hamil.town>"]
 homepage = "https://github.com/Thinkmill/pyn"
