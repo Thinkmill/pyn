@@ -62,4 +62,4 @@ jobs:
           name: x86_64-apple-darwin-pyn
           path: binaries/x86_64-apple-darwin/pyn
 
-      - run: apt-get install tree && tree binaries
+      - run: sudo apt-get install tree && tree binaries
