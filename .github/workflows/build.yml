@@ -42,3 +42,24 @@ jobs:
         with:
           name: ${{ matrix.target }}-${{ matrix.binary }}
           path: target/release/${{ matrix.binary }}
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download Linux Binary
+        uses: actions/download-artifact@v1
+        with:
+          name: x86_64-pc-windows-msvc-pyn.exe
+          path: binaries/x86_64-pc-windows-msvc/pyn.exe
+      - name: Download Windows Binary
+        uses: actions/download-artifact@v1
+        with:
+          name: x86_64-unknown-linux-musl-pyn
+          path: binaries/x86_64-unknown-linux-musl/pyn
+      - name: Download Mac Binary
+        uses: actions/download-artifact@v1
+        with:
+          name: x86_64-apple-darwin-pyn
+          path: binaries/x86_64-apple-darwin/pyn
+
+      - run: tree binaries
