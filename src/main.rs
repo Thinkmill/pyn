@@ -49,8 +49,16 @@ struct PackageRoot {
 
 #[derive(Deserialize, fmt::Debug)]
 struct PackageJson {
-    name: String,
+    #[serde(default)]
     scripts: HashMap<String, String>,
+}
+
+impl Default for PackageJson {
+    fn default() -> Self {
+        PackageJson {
+            scripts: HashMap::new(),
+        }
+    }
 }
 
 fn get_package_root(path: &Path) -> io::Result<PackageRoot> {
@@ -66,7 +74,8 @@ fn get_package_root(path: &Path) -> io::Result<PackageRoot> {
     } else if let Some(parent_path) = path.parent() {
         return get_package_root(parent_path);
     } else {
-        panic!("Could not find a package root")
+        println!("Could not find a package root");
+        std::process::exit(1)
     }
 }
 
@@ -114,21 +123,21 @@ fn get_project_root(path: &Path) -> io::Result<ProjectRoot> {
         return get_project_root(parent_path);
     }
 
-    panic!("No lockfile could be found in {} or above. If you haven't used a package manager in this proejct yet, please do that first to generate a lockfile");
+    println!("No lockfile could be found. If you haven't used a package manager in this p yet, please do that first to generate a lockfile");
+    std::process::exit(1)
 }
 
-fn install_deps(path: &Path) -> io::Result<()> {
+fn run_package_manager(path: &Path, args: VecDeque<String>) -> io::Result<()> {
     let project = get_project_root(path)?;
     println!(
         "Found {} project at {}",
         project.package_manager,
         project.dir.to_string_lossy()
     );
-    println!("Running {} install", project.package_manager);
     let mut child = project
         .package_manager
         .cmd()
-        .args(&["install"])
+        .args(args)
         .current_dir(project.dir)
         .spawn()?;
     child.wait()?;
@@ -145,7 +154,8 @@ fn find_binary_location(current_dir: &Path, binary: &String) -> std::path::PathB
     } else if let Some(parent) = current_dir.parent() {
         return find_binary_location(parent, binary);
     } else {
-        panic!("Could not find a script or binary named {}", binary)
+        println!("Could not find a script or binary named {}", binary);
+        std::process::exit(1)
     }
 }
 
@@ -181,18 +191,27 @@ fn run_script_or_binary(current_dir: &Path, mut args: VecDeque<String>) -> io::R
 
 fn main() -> io::Result<()> {
     let mut i = 0;
-    let mut args = VecDeque::new();
-    for argument in env::args() {
+    let env_args = env::args();
+
+    let mut args = VecDeque::with_capacity(if env_args.len() == 0 {
+        1
+    } else {
+        env_args.len()
+    });
+    for argument in env_args {
         if i != 0 {
             args.push_back(argument);
         }
         i = i + 1;
     }
     let current_dir = env::current_dir()?;
-
     if args.len() == 0 {
-        install_deps(&current_dir)
-    } else {
-        run_script_or_binary(&current_dir, args)
+        args.push_back(String::from("install"));
+        return run_package_manager(&current_dir, args);
     }
+    let add_string = String::from("add");
+    if args.get(0) == Option::Some(&add_string) {
+        return run_package_manager(&current_dir, args);
+    }
+    return run_script_or_binary(&current_dir, args);
 }

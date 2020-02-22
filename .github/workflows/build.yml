@@ -50,16 +50,14 @@ jobs:
         uses: actions/download-artifact@v1
         with:
           name: x86_64-pc-windows-msvc-pyn.exe
-          path: binaries/x86_64-pc-windows-msvc/pyn.exe
+          path: binaries/x86_64-pc-windows-msvc
       - name: Download Windows Binary
         uses: actions/download-artifact@v1
         with:
           name: x86_64-unknown-linux-musl-pyn
-          path: binaries/x86_64-unknown-linux-musl/pyn
+          path: binaries/x86_64-unknown-linux-musl
       - name: Download Mac Binary
         uses: actions/download-artifact@v1
         with:
           name: x86_64-apple-darwin-pyn
-          path: binaries/x86_64-apple-darwin/pyn
-
-      - run: sudo apt-get install tree && tree binaries
+          path: binaries/x86_64-apple-darwin
