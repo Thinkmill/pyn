@@ -138,7 +138,7 @@ fn run_package_manager(path: &Path, args: VecDeque<String>) -> io::Result<()> {
         .package_manager
         .cmd()
         .args(args)
-        .current_dir(project.dir)
+        .current_dir(path)
         .spawn()?;
     child.wait()?;
 
