@@ -42,11 +42,6 @@ struct ProjectRoot {
     dir: Box<Path>,
 }
 
-struct PackageRoot {
-    // dir: Box<Path>,
-    package_json: PackageJson,
-}
-
 #[derive(Deserialize, fmt::Debug)]
 struct PackageJson {
     #[serde(default)]
@@ -61,16 +56,12 @@ impl Default for PackageJson {
     }
 }
 
-fn get_package_root(path: &Path) -> io::Result<PackageRoot> {
+fn get_package_root(path: &Path) -> io::Result<PackageJson> {
     let package_json_path = path.join(Path::new("package.json"));
     if package_json_path.exists() {
         let contents = fs::read_to_string(package_json_path)?;
         let package_json: PackageJson = serde_json::from_str(&contents)?;
-        let project = PackageRoot {
-            // dir: Box::from(path),
-            package_json: package_json,
-        };
-        return Ok(project);
+        return Ok(package_json);
     } else if let Some(parent_path) = path.parent() {
         return get_package_root(parent_path);
     } else {
@@ -123,24 +114,24 @@ fn get_project_root(path: &Path) -> io::Result<ProjectRoot> {
         return get_project_root(parent_path);
     }
 
-    println!("No lockfile could be found. If you haven't used a package manager in this p yet, please do that first to generate a lockfile");
+    eprintln!("No lockfile could be found. If you haven't used a package manager in this project yet, please do that first to generate a lockfile");
     std::process::exit(1)
 }
 
 fn run_package_manager(path: &Path, args: VecDeque<String>) -> io::Result<()> {
     let project = get_project_root(path)?;
-    println!(
+    eprintln!(
         "Found {} project at {}",
         project.package_manager,
         project.dir.to_string_lossy()
     );
-    let mut child = project
+    project
         .package_manager
         .cmd()
         .args(args)
         .current_dir(path)
-        .spawn()?;
-    child.wait()?;
+        .spawn()?
+        .wait()?;
 
     Ok(())
 }
@@ -154,7 +145,7 @@ fn find_binary_location(current_dir: &Path, binary: &String) -> std::path::PathB
     } else if let Some(parent) = current_dir.parent() {
         return find_binary_location(parent, binary);
     } else {
-        println!("Could not find a script or binary named {}", binary);
+        eprintln!("Could not find a script or binary named {}", binary);
         std::process::exit(1)
     }
 }
@@ -163,7 +154,7 @@ fn find_binary_location(current_dir: &Path, binary: &String) -> std::path::PathB
 fn run_script_or_binary(current_dir: &Path, mut args: VecDeque<String>) -> io::Result<()> {
     let pkg = get_package_root(current_dir)?;
     if let Some(bin) = args.front() {
-        if pkg.package_json.scripts.contains_key(bin) {
+        if pkg.scripts.contains_key(bin) {
             let project = get_project_root(current_dir)?;
             let mut child = project
                 .package_manager
@@ -192,12 +183,7 @@ fn run_script_or_binary(current_dir: &Path, mut args: VecDeque<String>) -> io::R
 fn main() -> io::Result<()> {
     let mut i = 0;
     let env_args = env::args();
-
-    let mut args = VecDeque::with_capacity(if env_args.len() == 0 {
-        1
-    } else {
-        env_args.len()
-    });
+    let mut args = VecDeque::with_capacity(env_args.len());
     for argument in env_args {
         if i != 0 {
             args.push_back(argument);
@@ -205,13 +191,14 @@ fn main() -> io::Result<()> {
         i = i + 1;
     }
     let current_dir = env::current_dir()?;
-    if args.len() == 0 {
-        args.push_back(String::from("install"));
-        return run_package_manager(&current_dir, args);
+    match args.get(0) {
+        Some(first_arg) => match first_arg.as_str() {
+            "add" | "install" | "remove" => run_package_manager(&current_dir, args),
+            _ => run_script_or_binary(&current_dir, args),
+        },
+        _ => {
+            args.push_back(String::from("install"));
+            run_package_manager(&current_dir, args)
+        }
     }
-    let add_string = String::from("add");
-    if args.get(0) == Option::Some(&add_string) {
-        return run_package_manager(&current_dir, args);
-    }
-    return run_script_or_binary(&current_dir, args);
 }
