@@ -177,7 +177,7 @@ fn main() -> io::Result<()> {
     let current_dir = env::current_dir()?;
     match args.get(0) {
         Some(first_arg) => match first_arg.as_str() {
-            "add" | "install" | "remove" => run_package_manager(&current_dir, args),
+            "add" | "install" | "remove" | "why" => run_package_manager(&current_dir, args),
             _ => run_script_or_binary(&current_dir, args),
         },
         _ => {
