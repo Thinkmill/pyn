@@ -90,14 +90,6 @@ struct PackageJson {
     scripts: HashMap<String, String>,
 }
 
-impl Default for PackageJson {
-    fn default() -> Self {
-        PackageJson {
-            scripts: HashMap::new(),
-        }
-    }
-}
-
 impl PackageJson {
     fn find(path: &Path) -> Result<PackageJson> {
         let package_json_path = path.join(Path::new("package.json"));
