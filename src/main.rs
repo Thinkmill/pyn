@@ -1,11 +1,11 @@
 use serde::Deserialize;
-use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::process::Command;
+use std::{collections::HashMap, ffi::OsStr};
 
 enum PackageManager {
     PNPM,
@@ -67,32 +67,22 @@ fn get_package_root(path: &Path) -> io::Result<PackageJson> {
 }
 
 fn get_project_root(path: &Path) -> io::Result<ProjectRoot> {
-    let mut dir = fs::read_dir(path)?;
+    let dir = fs::read_dir(path)?;
 
-    while let Some(res) = dir.next() {
-        let entry = res?;
-        let file_name = String::from(entry.file_name().to_string_lossy());
-        if file_name == "yarn.lock" {
-            let project = ProjectRoot {
-                dir: Box::from(path),
-                package_manager: PackageManager::Yarn,
-            };
-            return Ok(project);
-        }
-        if file_name == "pnpm-lock.yaml" {
-            let project = ProjectRoot {
-                dir: Box::from(path),
-                package_manager: PackageManager::PNPM,
-            };
-            return Ok(project);
-        }
-        if file_name == "package-lock.json" {
-            let project = ProjectRoot {
-                dir: Box::from(path),
-                package_manager: PackageManager::NPM,
-            };
-            return Ok(project);
-        }
+    for entry in dir {
+        let entry = entry?;
+
+        let package_manager = match entry.file_name().to_str() {
+            Some("yarn.lock") => PackageManager::Yarn,
+            Some("pnpm-lock.yaml") => PackageManager::PNPM,
+            Some("package-lock.json") => PackageManager::NPM,
+            _ => continue,
+        };
+        let project = ProjectRoot {
+            dir: Box::from(path),
+            package_manager,
+        };
+        return Ok(project);
     }
     if let Some(parent_path) = path.parent() {
         return get_project_root(parent_path);
@@ -102,7 +92,7 @@ fn get_project_root(path: &Path) -> io::Result<ProjectRoot> {
     std::process::exit(1)
 }
 
-fn run_package_manager(path: &Path, args: VecDeque<String>) -> io::Result<()> {
+fn run_package_manager<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> io::Result<()> {
     let project = get_project_root(path)?;
     eprintln!(
         "🧞 Found {} project at {}",
@@ -120,9 +110,9 @@ fn run_package_manager(path: &Path, args: VecDeque<String>) -> io::Result<()> {
     Ok(())
 }
 
-fn find_binary_location(current_dir: &Path, binary: &String) -> std::path::PathBuf {
+fn find_binary_location(current_dir: &Path, binary: &str) -> std::path::PathBuf {
     let mut path_string = String::from("node_modules/.bin/");
-    path_string.push_str(binary.as_str());
+    path_string.push_str(binary);
     let path = current_dir.join(Path::new(&path_string));
     if path.exists() {
         return path;
@@ -135,29 +125,28 @@ fn find_binary_location(current_dir: &Path, binary: &String) -> std::path::PathB
 }
 
 // TODO: do script running in rust rather than offloading to the package manager
-fn run_script_or_binary(current_dir: &Path, mut args: VecDeque<String>) -> io::Result<()> {
+// (i'm not totally sure about that)
+fn run_script_or_binary(current_dir: &Path, args: &[String]) -> io::Result<()> {
     let pkg = get_package_root(current_dir)?;
-    if let Some(bin) = args.front() {
-        if pkg.scripts.contains_key(bin) {
-            let project = get_project_root(current_dir)?;
-            let mut child = project
-                .package_manager
-                .cmd()
-                .arg("run")
-                .args(args)
-                .spawn()?;
-            let status = child.wait()?;
-            if let Some(code) = status.code() {
-                std::process::exit(code)
-            }
-        } else {
-            let binary = find_binary_location(current_dir, bin);
-            args.pop_front();
-            let mut child = Command::new(binary).args(args).spawn()?;
-            let status = child.wait()?;
-            if let Some(code) = status.code() {
-                std::process::exit(code)
-            }
+    let bin = args[0].as_ref();
+    if pkg.scripts.contains_key(bin) {
+        let project = get_project_root(current_dir)?;
+        let mut child = project
+            .package_manager
+            .cmd()
+            .arg("run")
+            .args(args)
+            .spawn()?;
+        let status = child.wait()?;
+        if let Some(code) = status.code() {
+            std::process::exit(code)
+        }
+    } else {
+        let binary = find_binary_location(current_dir, &bin);
+        let mut child = Command::new(binary).args(&args[1..]).spawn()?;
+        let status = child.wait()?;
+        if let Some(code) = status.code() {
+            std::process::exit(code)
         }
     }
 
@@ -165,24 +154,13 @@ fn run_script_or_binary(current_dir: &Path, mut args: VecDeque<String>) -> io::R
 }
 
 fn main() -> io::Result<()> {
-    let mut i = 0;
-    let env_args = env::args();
-    let mut args = VecDeque::with_capacity(env_args.len());
-    for argument in env_args {
-        if i != 0 {
-            args.push_back(argument);
-        }
-        i = i + 1;
-    }
+    let args: Vec<String> = env::args().skip(1).collect();
     let current_dir = env::current_dir()?;
     match args.get(0) {
         Some(first_arg) => match first_arg.as_str() {
-            "add" | "install" | "remove" | "why" => run_package_manager(&current_dir, args),
-            _ => run_script_or_binary(&current_dir, args),
+            "add" | "install" | "remove" | "why" => run_package_manager(&current_dir, &args),
+            _ => run_script_or_binary(&current_dir, &args),
         },
-        _ => {
-            args.push_back(String::from("install"));
-            run_package_manager(&current_dir, args)
-        }
+        _ => run_package_manager(&current_dir, &["install"]),
     }
 }
