@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fmt;
@@ -12,7 +11,6 @@ enum PackageManager {
     PNPM,
     NPM,
     Yarn,
-    Bolt,
 }
 
 impl fmt::Display for PackageManager {
@@ -21,7 +19,6 @@ impl fmt::Display for PackageManager {
             PackageManager::PNPM => write!(f, "pnpm"),
             PackageManager::NPM => write!(f, "npm"),
             PackageManager::Yarn => write!(f, "Yarn"),
-            PackageManager::Bolt => write!(f, "Bolt"),
         }
     }
 }
@@ -32,7 +29,6 @@ impl PackageManager {
             PackageManager::PNPM => "pnpm",
             PackageManager::NPM => "npm",
             PackageManager::Yarn => "yarn",
-            PackageManager::Bolt => "bolt",
         })
     }
 }
@@ -77,21 +73,9 @@ fn get_project_root(path: &Path) -> io::Result<ProjectRoot> {
         let entry = res?;
         let file_name = String::from(entry.file_name().to_string_lossy());
         if file_name == "yarn.lock" {
-            let package_json_content_string =
-                fs::read_to_string(path.join(Path::new("package.json")))?;
-            let package_json_content: Value = serde_json::from_str(&package_json_content_string)?;
-            let package_manager = if package_json_content
-                .as_object()
-                .unwrap()
-                .contains_key("bolt")
-            {
-                PackageManager::Bolt
-            } else {
-                PackageManager::Yarn
-            };
             let project = ProjectRoot {
                 dir: Box::from(path),
-                package_manager,
+                package_manager: PackageManager::Yarn,
             };
             return Ok(project);
         }
