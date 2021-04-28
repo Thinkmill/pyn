@@ -17,7 +17,7 @@ dependencies = [
 
 [[package]]
 name = "pyn"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
