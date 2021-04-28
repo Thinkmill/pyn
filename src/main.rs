@@ -118,7 +118,7 @@ fn run_package_manager<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
         project.package_manager,
         project.dir.to_string_lossy()
     );
-    project
+    let status = project
         .package_manager
         .cmd()
         .args(args)
@@ -126,7 +126,12 @@ fn run_package_manager<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
         .spawn()?
         .wait()?;
 
-    Ok(())
+    let code = status.code().unwrap_or(1);
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(Error::ChildProcessExit(code))
+    }
 }
 
 fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
