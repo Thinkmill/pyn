@@ -3,7 +3,8 @@ use std::{
     collections::HashMap,
     env,
     ffi::OsStr,
-    fmt, fs, io,
+    fmt, fs,
+    io::{self, ErrorKind},
     path::{Path, PathBuf},
     process::Command,
 };
@@ -93,14 +94,19 @@ struct PackageJson {
 impl PackageJson {
     fn find(path: &Path) -> Result<PackageJson> {
         let package_json_path = path.join(Path::new("package.json"));
-        if package_json_path.exists() {
-            let contents = fs::read_to_string(package_json_path)?;
-            let package_json: PackageJson = serde_json::from_str(&contents)?;
-            Ok(package_json)
-        } else if let Some(parent_path) = path.parent() {
-            PackageJson::find(parent_path)
-        } else {
-            Err(Error::CouldNotFindPackageRoot)
+        match fs::read_to_string(package_json_path) {
+            Ok(contents) => {
+                let package_json: PackageJson = serde_json::from_str(&contents)?;
+                Ok(package_json)
+            }
+            Err(err) if err.kind() == ErrorKind::NotFound => {
+                if let Some(parent_path) = path.parent() {
+                    PackageJson::find(parent_path)
+                } else {
+                    Err(Error::CouldNotFindPackageRoot)
+                }
+            }
+            Err(err) => Err(err.into()),
         }
     }
 }
