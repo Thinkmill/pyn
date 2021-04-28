@@ -1,6 +1,6 @@
 [package]
 name = "pyn"
-description = "A wrapper for the JavaScript package managers: npm, pnpm, Yarn and Bolt"
+description = "A wrapper for the JavaScript package managers: npm, pnpm, and Yarn"
 license = "MIT"
 version = "0.3.0"
 authors = ["mitchellhamilton <mitchell@hamil.town>"]
@@ -12,8 +12,8 @@ edition = "2018"
 
 [dependencies]
 
-serde_json = "1.0.57"
-serde = {version="1.0.115", features = ["derive"] }
+serde_json = "1.0.64"
+serde = { version = "1.0.125", features = ["derive"] }
 
 [profile.release]
 lto = true
