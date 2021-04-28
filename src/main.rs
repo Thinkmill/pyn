@@ -58,6 +58,32 @@ struct ProjectRoot {
     dir: Box<Path>,
 }
 
+impl ProjectRoot {
+    fn find(path: &Path) -> Result<ProjectRoot> {
+        let dir = fs::read_dir(path)?;
+
+        for entry in dir {
+            let entry = entry?;
+            let package_manager = match entry.file_name().to_str() {
+                Some("yarn.lock") => PackageManager::Yarn,
+                Some("pnpm-lock.yaml") => PackageManager::PNPM,
+                Some("package-lock.json") => PackageManager::NPM,
+                _ => continue,
+            };
+            let project = ProjectRoot {
+                dir: Box::from(path),
+                package_manager,
+            };
+            return Ok(project);
+        }
+        if let Some(parent_path) = path.parent() {
+            ProjectRoot::find(parent_path)
+        } else {
+            Err(Error::CouldNotFindLockfile)
+        }
+    }
+}
+
 #[derive(Deserialize, fmt::Debug)]
 struct PackageJson {
     #[serde(default)]
@@ -72,45 +98,23 @@ impl Default for PackageJson {
     }
 }
 
-fn get_package_root(path: &Path) -> Result<PackageJson> {
-    let package_json_path = path.join(Path::new("package.json"));
-    if package_json_path.exists() {
-        let contents = fs::read_to_string(package_json_path)?;
-        let package_json: PackageJson = serde_json::from_str(&contents)?;
-        Ok(package_json)
-    } else if let Some(parent_path) = path.parent() {
-        get_package_root(parent_path)
-    } else {
-        Err(Error::CouldNotFindPackageRoot)
-    }
-}
-
-fn get_project_root(path: &Path) -> Result<ProjectRoot> {
-    let dir = fs::read_dir(path)?;
-
-    for entry in dir {
-        let entry = entry?;
-        let package_manager = match entry.file_name().to_str() {
-            Some("yarn.lock") => PackageManager::Yarn,
-            Some("pnpm-lock.yaml") => PackageManager::PNPM,
-            Some("package-lock.json") => PackageManager::NPM,
-            _ => continue,
-        };
-        let project = ProjectRoot {
-            dir: Box::from(path),
-            package_manager,
-        };
-        return Ok(project);
-    }
-    if let Some(parent_path) = path.parent() {
-        get_project_root(parent_path)
-    } else {
-        Err(Error::CouldNotFindLockfile)
+impl PackageJson {
+    fn find(path: &Path) -> Result<PackageJson> {
+        let package_json_path = path.join(Path::new("package.json"));
+        if package_json_path.exists() {
+            let contents = fs::read_to_string(package_json_path)?;
+            let package_json: PackageJson = serde_json::from_str(&contents)?;
+            Ok(package_json)
+        } else if let Some(parent_path) = path.parent() {
+            PackageJson::find(parent_path)
+        } else {
+            Err(Error::CouldNotFindPackageRoot)
+        }
     }
 }
 
 fn run_package_manager<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
-    let project = get_project_root(path)?;
+    let project = ProjectRoot::find(path)?;
     eprintln!(
         "🧞 Found {} project at {}",
         project.package_manager,
@@ -143,10 +147,10 @@ fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
 // TODO: do script running in rust rather than offloading to the package manager
 // (i'm not totally sure about that)
 fn run_script_or_binary(current_dir: &Path, args: &[String]) -> Result<()> {
-    let pkg = get_package_root(current_dir)?;
+    let pkg = PackageJson::find(current_dir)?;
     let bin = args[0].as_ref();
     let mut child = if pkg.scripts.contains_key(bin) {
-        let project = get_project_root(current_dir)?;
+        let project = ProjectRoot::find(current_dir)?;
         project
             .package_manager
             .cmd()
