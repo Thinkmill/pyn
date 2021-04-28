@@ -128,9 +128,9 @@ fn run_package_manager<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
 }
 
 fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
-    let mut path_string = String::from("node_modules/.bin/");
-    path_string.push_str(binary);
-    let path = current_dir.join(Path::new(&path_string));
+    let mut path = current_dir.to_owned();
+    path.push("node_modules/.bin/");
+    path.push(binary);
     if path.exists() {
         Ok(path)
     } else if let Some(parent) = current_dir.parent() {
