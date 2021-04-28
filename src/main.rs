@@ -105,7 +105,7 @@ fn get_project_root(path: &Path) -> io::Result<ProjectRoot> {
 fn run_package_manager(path: &Path, args: VecDeque<String>) -> io::Result<()> {
     let project = get_project_root(path)?;
     eprintln!(
-        "Found {} project at {}",
+        "🧞 Found {} project at {}",
         project.package_manager,
         project.dir.to_string_lossy()
     );
