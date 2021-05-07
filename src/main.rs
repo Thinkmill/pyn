@@ -10,6 +10,7 @@ use std::{
 };
 use thiserror::Error;
 
+// mod project;
 #[derive(Debug, Error)]
 enum Error {
     #[error("Could not find a package root")]
@@ -28,6 +29,7 @@ enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Clone, Copy)]
 enum PackageManager {
     PNPM,
     NPM,
@@ -112,6 +114,7 @@ impl PackageJson {
 }
 
 fn run_package_manager<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
+    From::from()
     let project = ProjectRoot::find(path)?;
     eprintln!(
         "🧞 Found {} project at {}",
@@ -123,8 +126,7 @@ fn run_package_manager<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
         .cmd()
         .args(args)
         .current_dir(path)
-        .spawn()?
-        .wait()?;
+        .status()?;
 
     let code = status.code().unwrap_or(1);
     if code == 0 {
@@ -152,19 +154,18 @@ fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
 fn run_script_or_binary(current_dir: &Path, args: &[String]) -> Result<()> {
     let pkg = PackageJson::find(current_dir)?;
     let bin = args[0].as_ref();
-    let mut child = if pkg.scripts.contains_key(bin) {
+    let status = if pkg.scripts.contains_key(bin) {
         let project = ProjectRoot::find(current_dir)?;
         project
             .package_manager
             .cmd()
             .arg("run")
             .args(args)
-            .spawn()?
+            .status()?
     } else {
         let binary = find_binary_location(current_dir, &bin)?;
-        Command::new(binary).args(&args[1..]).spawn()?
+        Command::new(binary).args(&args[1..]).status()?
     };
-    let status = child.wait()?;
     let code = status.code().unwrap_or(1);
     if code == 0 {
         Ok(())
@@ -174,7 +175,7 @@ fn run_script_or_binary(current_dir: &Path, args: &[String]) -> Result<()> {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().skip(1).collect();
+    let args: [String] = env::args().skip(1).collect();
     let current_dir = env::current_dir().unwrap();
     let result = match args.get(0) {
         Some(first_arg) => match first_arg.as_str() {
