@@ -8,7 +8,7 @@ use std::{
     fmt, fs,
     io::{self, ErrorKind},
     path::{Path, PathBuf},
-    process::Command,
+    process::{exit, Command},
 };
 use structopt::StructOpt;
 use thiserror::Error;
@@ -186,6 +186,9 @@ enum Runner {
         /// Removes the package from everywhere in the project
         #[structopt(long, short)]
         everywhere: bool,
+        /// Skips the install step
+        #[structopt(long, short)]
+        skip_install: bool,
     },
     #[structopt(external_subcommand)]
     Other(Vec<String>),
@@ -199,9 +202,11 @@ fn main() {
         Runner::Remove {
             everywhere,
             packages,
+            skip_install,
         } => {
             if everywhere {
-                println!("Removing {:?} from everywhere", packages);
+                println!("Removing from everywhere is not implemented yet.");
+                exit(1);
             } else {
                 println!("Removing {:?}", packages);
                 // find the closest package json
@@ -212,8 +217,10 @@ fn main() {
                 }
                 // write the updated package.json back to disk
                 pkg_json.write(&pkg_json_path).unwrap();
-                // go to the project root
-                run_package_manager(&current_dir, &["install"]).unwrap();
+                // run install
+                if !skip_install {
+                    run_package_manager(&current_dir, &["install"]).unwrap();
+                }
             };
         }
         Runner::Other(args) => {
