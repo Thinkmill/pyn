@@ -178,11 +178,10 @@ fn run_script_or_binary(current_dir: &Path, args: &[String]) -> Result<()> {
 }
 
 #[derive(StructOpt)]
-#[structopt(about = "your nifty package manager runner")]
-enum Runner {
-    /// Removes packages from your nearest package.json and runs your package manager's install command
+enum Pyn {
+    /// Removes dependencies from your nearest package.json and runs your package manager's install command
     Remove {
-        packages: Vec<String>,
+        dependencies: Vec<String>,
         /// Removes the package from everywhere in the project
         #[structopt(long, short)]
         everywhere: bool,
@@ -194,45 +193,59 @@ enum Runner {
     Other(Vec<String>),
 }
 
+#[derive(StructOpt)]
+#[structopt(about = "your nifty package manager runner")]
+struct Opts {
+    #[structopt(subcommand)]
+    pyn: Option<Pyn>,
+}
+
 fn main() {
-    let opt = Runner::from_args();
+    let opt = Opts::from_args()
+        .pyn
+        .unwrap_or_else(|| Pyn::Other(vec!["install".to_owned()]));
     let current_dir = env::current_dir().unwrap();
 
     match opt {
-        Runner::Remove {
+        Pyn::Remove {
             everywhere,
-            packages,
+            dependencies,
             skip_install,
         } => {
-            if everywhere {
-                println!("Removing from everywhere is not implemented yet.");
-                exit(1);
-            } else {
-                println!("Removing {:?}", packages);
-                // find the closest package json
-                let (mut pkg_json, pkg_json_path) = PackageJson::find(&current_dir).unwrap();
-                // remove the dependencies
-                for pkg in packages {
-                    pkg_json.remove_dep(&pkg.try_into().unwrap());
-                }
-                // write the updated package.json back to disk
-                pkg_json.write(&pkg_json_path).unwrap();
-                // run install
-                if !skip_install {
-                    run_package_manager(&current_dir, &["install"]).unwrap();
+            println!("Removing {:?}", dependencies);
+            let deps_as_pkg_names: Vec<PackageName> = dependencies
+                .into_iter()
+                .map(|dep| dep.try_into())
+                .collect::<std::result::Result<_, _>>()
+                .unwrap();
+            let do_remove = |pkg_jsons: &mut [(PackageJson, PathBuf)]| {
+                for (pkg_json, pkg_json_path) in pkg_jsons {
+                    // remove the dependencies
+                    for pkg in &deps_as_pkg_names {
+                        pkg_json.remove_dep(pkg);
+                    }
+                    // write the updated package.json back to disk
+                    pkg_json.write(&pkg_json_path).unwrap();
+                    // run install
+                    if !skip_install {
+                        run_package_manager(&current_dir, &["install"]).unwrap();
+                    }
                 }
             };
+            if everywhere {
+                // TODO: Find workspaces, and all the package.jsons, and remove the dependencies from them
+                println!("Remove from everywhere is not implemented yet");
+                exit(1);
+            } else {
+                // find the closest package json
+                let pkg_json = PackageJson::find(&current_dir).unwrap();
+                do_remove(&mut [pkg_json])
+            }
         }
-        Runner::Other(args) => {
-            let current_dir = env::current_dir().unwrap();
-            let result = match args.get(0) {
-                Some(first_arg) => match first_arg.as_str() {
-                    "add" | "install" | "remove" | "why" => {
-                        run_package_manager(&current_dir, &args)
-                    }
-                    _ => run_script_or_binary(&current_dir, &args),
-                },
-                _ => run_package_manager(&current_dir, &["install"]),
+        Pyn::Other(args) => {
+            let result = match args.get(0).unwrap().as_str() {
+                "add" | "install" | "remove" | "why" => run_package_manager(&current_dir, &args),
+                _ => run_script_or_binary(&current_dir, &args),
             };
             if let Err(err) = result {
                 match err {
