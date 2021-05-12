@@ -27,6 +27,7 @@ pub struct PackageJson {
     pub dev_dependencies: Dependencies,
     pub optional_dependencies: Dependencies,
     pub peer_dependencies: Dependencies,
+    pub scripts: InsertionOrderMap<String, String>,
     storage: InsertionOrderMap<String, PkgJsonValue>,
 }
 
@@ -74,18 +75,24 @@ impl Serialize for PackageJson {
             if let PkgJsonValue::Value(value) = val {
                 state.serialize_entry(key, value)?;
             } else {
-                if key.as_str() == "name" {
-                    state.serialize_entry(key, &self.name)?;
-                } else {
-                    let deps = match key.as_str() {
-                        "dependencies" => &self.dependencies,
-                        "devDependencies" => &self.dev_dependencies,
-                        "peerDependencies" => &self.peer_dependencies,
-                        "optionalDependencies" => &self.optional_dependencies,
-                        _ => unreachable!("key cannot be {}", key),
-                    };
-                    if !deps.is_empty() {
-                        state.serialize_entry(key, deps)?;
+                match key.as_str() {
+                    "name" => state.serialize_entry(key, &self.name)?,
+                    "scripts" => {
+                        if !self.scripts.is_empty() {
+                            state.serialize_entry(key, &self.scripts)?
+                        }
+                    }
+                    _ => {
+                        let deps = match key.as_str() {
+                            "dependencies" => &self.dependencies,
+                            "devDependencies" => &self.dev_dependencies,
+                            "peerDependencies" => &self.peer_dependencies,
+                            "optionalDependencies" => &self.optional_dependencies,
+                            _ => unreachable!("key cannot be {}", key),
+                        };
+                        if !deps.is_empty() {
+                            state.serialize_entry(key, deps)?;
+                        }
                     }
                 }
             }
@@ -105,6 +112,7 @@ impl TryFrom<InsertionOrderMap<String, Value>> for PackageJson {
     type Error = std::io::Error;
     fn try_from(value: InsertionOrderMap<String, Value>) -> Result<Self, Self::Error> {
         let mut name = None;
+        let mut scripts = InsertionOrderMap::new();
         let mut dependencies = KeyOrderedMap::new();
         let mut dev_dependencies = KeyOrderedMap::new();
         let mut peer_dependencies = KeyOrderedMap::new();
@@ -114,6 +122,11 @@ impl TryFrom<InsertionOrderMap<String, Value>> for PackageJson {
             let map = match key.as_str() {
                 "name" => {
                     name = Some(serde_json::from_value(value)?);
+                    storage.insert(key, PkgJsonValue::StoredElsewhere);
+                    continue;
+                }
+                "scripts" => {
+                    scripts = serde_json::from_value(value)?;
                     storage.insert(key, PkgJsonValue::StoredElsewhere);
                     continue;
                 }
@@ -137,6 +150,7 @@ impl TryFrom<InsertionOrderMap<String, Value>> for PackageJson {
         Ok(PackageJson {
             name: name
                 .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, "missing name field"))?,
+            scripts,
             dependencies,
             dev_dependencies,
             optional_dependencies,

@@ -179,7 +179,9 @@ fn run_script_or_binary(current_dir: &Path, args: &[String]) -> Result<()> {
 
 #[derive(StructOpt)]
 enum Pyn {
-    /// Removes dependencies from your nearest package.json and runs your package manager's install command
+    /// Lists the avialable scripts in your package
+    Scripts,
+    /// Removes dependencies from the current package and runs install
     Remove {
         dependencies: Vec<String>,
         /// Removes the package from everywhere in the project
@@ -207,6 +209,10 @@ fn main() {
     let current_dir = env::current_dir().unwrap();
 
     match opt {
+        Pyn::Scripts => {
+            let (pkg_json, _) = PackageJson::find(&current_dir).unwrap();
+            println!("Available scripts:\n{:#?}", pkg_json.scripts);
+        }
         Pyn::Remove {
             everywhere,
             dependencies,
