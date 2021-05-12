@@ -38,7 +38,8 @@ impl PackageJson {
         self.peer_dependencies.remove(pkg);
     }
     pub fn write(&self, path: &Path) -> std::io::Result<()> {
-        let stringified = serde_json::to_string_pretty(self)?;
+        let mut stringified = serde_json::to_string_pretty(self)?;
+        stringified.push('\n');
         std::fs::write(path, stringified)
     }
     pub fn find<P: Into<PathBuf>>(path: P) -> std::io::Result<(PackageJson, PathBuf)> {
