@@ -16,6 +16,8 @@ impl PackageNameParseError {
     }
 }
 
+impl std::error::Error for PackageNameParseError {}
+
 impl Display for PackageNameParseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} is not a valid npm package name", self.0)
@@ -101,8 +103,10 @@ fn is_valid_package_name_byte(byte: u8) -> bool {
 }
 
 fn is_bytes_valid_pkg_name(bytes: &[u8]) -> bool {
-    for byte in bytes {
-        if !is_valid_package_name_byte(*byte) {
+    for &byte in bytes {
+        if !is_valid_package_name_byte(byte) {
+            let x: char = byte.try_into().unwrap();
+            panic!("{}", x);
             return false;
         }
     }
@@ -123,10 +127,15 @@ impl TryFrom<&'_ str> for PackageName {
     }
 }
 
+impl Into<String> for PackageName {
+    fn into(self) -> String {
+        self.name
+    }
+}
+
 #[test]
-fn x() {
-    let x: PackageName = "".try_into().unwrap();
-    thing(x)
+fn keystone_monorepo_name() {
+    PackageName::new("@keystone-next/mono-repo".to_owned()).unwrap();
 }
 
 impl PackageName {
@@ -153,10 +162,10 @@ impl PackageName {
         match bytes[0] {
             b'.' | b'_' => return Err(PackageNameParseError(name)),
             b'@' => {
-                for (pos, byte) in bytes[1..].iter().enumerate() {
-                    match *byte {
+                for (pos, &byte) in bytes[1..].iter().enumerate() {
+                    match byte {
                         b'/' => {
-                            let rest = &bytes[pos + 1..];
+                            let rest = &bytes[pos + 2..];
                             return match is_bytes_valid_pkg_name(rest) {
                                 true => Ok(PackageName {
                                     name,
