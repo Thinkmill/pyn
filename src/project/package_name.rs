@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize, Serializer};
 use std::{
     cmp::Ordering,
-    convert::{TryFrom, TryInto},
+    convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     hash::{Hash, Hasher},
     num::NonZeroUsize,
+    str::FromStr,
 };
 
 #[derive(Debug)]
@@ -105,8 +106,6 @@ fn is_valid_package_name_byte(byte: u8) -> bool {
 fn is_bytes_valid_pkg_name(bytes: &[u8]) -> bool {
     for &byte in bytes {
         if !is_valid_package_name_byte(byte) {
-            let x: char = byte.try_into().unwrap();
-            panic!("{}", x);
             return false;
         }
     }
@@ -124,6 +123,13 @@ impl TryFrom<&'_ str> for PackageName {
     type Error = PackageNameParseError;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         PackageName::new(value.into())
+    }
+}
+
+impl FromStr for PackageName {
+    type Err = PackageNameParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        PackageName::new(s.into())
     }
 }
 

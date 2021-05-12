@@ -1,4 +1,3 @@
-use crate::PackageManager;
 use linked_hash_map::LinkedHashMap as InsertionOrderMap;
 pub use package_name::PackageName;
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
@@ -38,24 +37,21 @@ impl PackageJson {
         self.optional_dependencies.remove(pkg);
         self.peer_dependencies.remove(pkg);
     }
-    pub fn read(path: &Path) -> std::io::Result<PackageJson> {
-        let contents = std::fs::read_to_string(path)?;
-        Ok(serde_json::from_str(&contents)?)
-    }
     pub fn write(&self, path: &Path) -> std::io::Result<()> {
         let stringified = serde_json::to_string_pretty(self)?;
         std::fs::write(path, stringified)
     }
-    pub fn find(path: &Path) -> std::io::Result<(PackageJson, PathBuf)> {
-        let package_json_path = path.join("package.json");
+    pub fn find<P: Into<PathBuf>>(path: P) -> std::io::Result<(PackageJson, PathBuf)> {
+        let mut package_json_path = path.into();
+        package_json_path.push("package.json");
         match std::fs::read_to_string(&package_json_path) {
             Ok(contents) => {
                 let package_json: PackageJson = serde_json::from_str(&contents)?;
                 Ok((package_json, package_json_path))
             }
             Err(err) if err.kind() == ErrorKind::NotFound => {
-                if let Some(parent_path) = path.parent() {
-                    PackageJson::find(parent_path)
+                if package_json_path.pop() {
+                    PackageJson::find(package_json_path)
                 } else {
                     Err(std::io::Error::new(
                         ErrorKind::NotFound,
@@ -157,19 +153,5 @@ impl TryFrom<InsertionOrderMap<String, Value>> for PackageJson {
             peer_dependencies,
             storage,
         })
-    }
-}
-
-struct JsProject {
-    manager: PackageManager,
-    root_path: Box<Path>,
-}
-
-impl JsProject {
-    pub fn manager(&self) -> PackageManager {
-        self.manager
-    }
-    pub fn root_path(&self) -> &Path {
-        &self.root_path
     }
 }

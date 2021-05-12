@@ -1,6 +1,5 @@
 use project::{PackageJson, PackageName};
 use std::{
-    convert::TryInto,
     env,
     ffi::OsStr,
     fmt, fs, io,
@@ -152,7 +151,7 @@ enum Pyn {
     Scripts,
     /// Removes dependencies from the current package and runs install
     Remove {
-        dependencies: Vec<String>,
+        dependencies: Vec<PackageName>,
         /// Removes the package from everywhere in the project
         #[structopt(long, short)]
         everywhere: bool,
@@ -188,15 +187,10 @@ fn main() {
             skip_install,
         } => {
             println!("Removing {:?}", dependencies);
-            let deps_as_pkg_names: Vec<PackageName> = dependencies
-                .into_iter()
-                .map(|dep| dep.try_into())
-                .collect::<std::result::Result<_, _>>()
-                .unwrap();
             let do_remove = |pkg_jsons: &mut [(PackageJson, PathBuf)]| {
                 for (pkg_json, pkg_json_path) in pkg_jsons {
                     // remove the dependencies
-                    for pkg in &deps_as_pkg_names {
+                    for pkg in &dependencies {
                         pkg_json.remove_dep(pkg);
                     }
                     // write the updated package.json back to disk
