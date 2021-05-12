@@ -1,12 +1,9 @@
 use project::{PackageJson, PackageName};
-use serde::Deserialize;
 use std::{
-    collections::HashMap,
     convert::TryInto,
     env,
     ffi::OsStr,
-    fmt, fs,
-    io::{self, ErrorKind},
+    fmt, fs, io,
     path::{Path, PathBuf},
     process::{exit, Command},
 };
@@ -17,8 +14,6 @@ mod project;
 
 #[derive(Debug, Error)]
 enum Error {
-    #[error("Could not find a package root")]
-    CouldNotFindPackageRoot,
     #[error("No lockfile could be found. If you haven't used a package manager in this project yet, please do that first to generate a lockfile")]
     CouldNotFindLockfile,
     #[error("Could not find a script or binary named {0}")]
@@ -91,32 +86,6 @@ impl ProjectRoot {
     }
 }
 
-#[derive(Deserialize, fmt::Debug)]
-struct OldPackageJson {
-    #[serde(default)]
-    scripts: HashMap<String, String>,
-}
-
-impl OldPackageJson {
-    fn find(path: &Path) -> Result<OldPackageJson> {
-        let package_json_path = path.join(Path::new("package.json"));
-        match fs::read_to_string(package_json_path) {
-            Ok(contents) => {
-                let package_json: OldPackageJson = serde_json::from_str(&contents)?;
-                Ok(package_json)
-            }
-            Err(err) if err.kind() == ErrorKind::NotFound => {
-                if let Some(parent_path) = path.parent() {
-                    OldPackageJson::find(parent_path)
-                } else {
-                    Err(Error::CouldNotFindPackageRoot)
-                }
-            }
-            Err(err) => Err(err.into()),
-        }
-    }
-}
-
 fn run_package_manager<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
     let project = ProjectRoot::find(path)?;
     eprintln!(
@@ -155,7 +124,7 @@ fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
 // TODO: do script running in rust rather than offloading to the package manager
 // (i'm not totally sure about that)
 fn run_script_or_binary(current_dir: &Path, args: &[String]) -> Result<()> {
-    let pkg = OldPackageJson::find(current_dir)?;
+    let (pkg, _) = PackageJson::find(current_dir)?;
     let bin = args[0].as_ref();
     let status = if pkg.scripts.contains_key(bin) {
         let project = ProjectRoot::find(current_dir)?;
