@@ -1,5 +1,5 @@
+use crate::PackageName;
 use linked_hash_map::LinkedHashMap as InsertionOrderMap;
-pub use package_name::PackageName;
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use std::{
@@ -8,7 +8,6 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
 };
-mod package_name;
 
 type Dependencies = KeyOrderedMap<PackageName, String>;
 

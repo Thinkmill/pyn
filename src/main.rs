@@ -1,4 +1,6 @@
-use project::{PackageJson, PackageName};
+pub(crate) use package_name::PackageName;
+use project::PackageJson;
+use serde::Deserialize;
 use std::{
     env,
     ffi::OsStr,
@@ -9,6 +11,7 @@ use std::{
 use structopt::StructOpt;
 use thiserror::Error;
 
+mod package_name;
 mod project;
 
 #[derive(Debug, Error)]
@@ -26,6 +29,31 @@ enum Error {
 }
 
 type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Deserialize)]
+struct PackageJsonFromUnpkg {
+    version: String,
+}
+
+fn get_npm_package_version(package: &str) -> String {
+    let client = reqwest::blocking::Client::new();
+    let request_url = String::from("https://unpkg.com/") + package + "/package.json";
+
+    let pkg_json = client
+        .get(request_url)
+        .send()
+        .unwrap()
+        .json::<PackageJsonFromUnpkg>()
+        .unwrap();
+    pkg_json.version
+}
+
+// This will keep breaking as the version of react changes, use for debug at will
+#[test]
+fn get_latest_version_of_react() {
+    let result = get_npm_package_version("react");
+    assert_eq!(result, "17.0.2")
+}
 
 #[derive(Clone, Copy)]
 enum PackageManager {
@@ -85,7 +113,7 @@ impl ProjectRoot {
     }
 }
 
-fn run_package_manager<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
+fn run_package_manager_at_project_root<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
     let project = ProjectRoot::find(path)?;
     eprintln!(
         "🧞 Found {} project at {}",
@@ -146,9 +174,19 @@ fn run_script_or_binary(current_dir: &Path, args: &[String]) -> Result<()> {
 }
 
 #[derive(StructOpt)]
-enum Pyn {
+enum Subcommand {
     /// Lists the avialable scripts in your package
     Scripts,
+    /// Adds dependencies to the current package and runs install
+    Add {
+        dependencies: Vec<PackageName>,
+        /// Skips the install step
+        #[structopt(long, short)]
+        skip_install: bool,
+        /// Add to dev dependencies
+        #[structopt(long, short)]
+        dev: bool,
+    },
     /// Removes dependencies from the current package and runs install
     Remove {
         dependencies: Vec<PackageName>,
@@ -167,21 +205,43 @@ enum Pyn {
 #[structopt(about = "your nifty package manager runner")]
 struct Opts {
     #[structopt(subcommand)]
-    pyn: Option<Pyn>,
+    subcommand: Option<Subcommand>,
 }
 
 fn main() {
     let opt = Opts::from_args()
-        .pyn
-        .unwrap_or_else(|| Pyn::Other(vec!["install".to_owned()]));
+        .subcommand
+        .unwrap_or_else(|| Subcommand::Other(vec!["install".to_owned()]));
     let current_dir = env::current_dir().unwrap();
 
     match opt {
-        Pyn::Scripts => {
+        Subcommand::Scripts => {
             let (pkg_json, _) = PackageJson::find(&current_dir).unwrap();
             println!("Available scripts:\n{:#?}", pkg_json.scripts);
         }
-        Pyn::Remove {
+        Subcommand::Add {
+            dependencies,
+            skip_install,
+            dev,
+        } => {
+            let (mut pkg_json, pkg_json_path) = PackageJson::find(&current_dir).unwrap();
+            // add the dependencies
+            for dep in dependencies {
+                let version = get_npm_package_version(dep.as_str());
+                if dev {
+                    pkg_json.dev_dependencies.insert(dep, version);
+                } else {
+                    pkg_json.dependencies.insert(dep, version);
+                }
+            }
+            // write the updated package.json back to disk
+            pkg_json.write(&pkg_json_path).unwrap();
+            // run install
+            if !skip_install {
+                run_package_manager_at_project_root(&current_dir, &["install"]).unwrap();
+            }
+        }
+        Subcommand::Remove {
             everywhere,
             dependencies,
             skip_install,
@@ -197,7 +257,7 @@ fn main() {
                     pkg_json.write(&pkg_json_path).unwrap();
                     // run install
                     if !skip_install {
-                        run_package_manager(&current_dir, &["install"]).unwrap();
+                        run_package_manager_at_project_root(&current_dir, &["install"]).unwrap();
                     }
                 }
             };
@@ -211,9 +271,11 @@ fn main() {
                 do_remove(&mut [pkg_json])
             }
         }
-        Pyn::Other(args) => {
+        Subcommand::Other(args) => {
             let result = match args.get(0).unwrap().as_str() {
-                "add" | "install" | "remove" | "why" => run_package_manager(&current_dir, &args),
+                "add" | "install" | "remove" | "why" => {
+                    run_package_manager_at_project_root(&current_dir, &args)
+                }
                 _ => run_script_or_binary(&current_dir, &args),
             };
             if let Err(err) = result {
