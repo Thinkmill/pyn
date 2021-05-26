@@ -186,7 +186,11 @@ impl PackageName {
                 }
                 return Err(PackageNameParseError(name));
             }
-            _ => {}
+            _ => {
+                if !is_bytes_valid_pkg_name(bytes) {
+                    return Err(PackageNameParseError(name));
+                }
+            }
         }
 
         if INVALID_NAMES.contains(&name.as_str()) {
@@ -199,7 +203,7 @@ impl PackageName {
     }
 }
 
-const INVALID_NAMES: [&'static str; 42] = [
+const INVALID_NAMES: &[&str] = &[
     "node_modules",
     "favicon.ico",
     "assert",
