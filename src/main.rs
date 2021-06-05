@@ -1,5 +1,5 @@
+use package_json::PackageJson;
 pub(crate) use package_name::PackageName;
-use project::PackageJson;
 use serde::Deserialize;
 use std::{
     env,
@@ -11,8 +11,8 @@ use std::{
 use structopt::StructOpt;
 use thiserror::Error;
 
+mod package_json;
 mod package_name;
-mod project;
 
 #[derive(Debug, Error)]
 enum Error {

@@ -104,12 +104,7 @@ fn is_valid_package_name_byte(byte: u8) -> bool {
 }
 
 fn is_bytes_valid_pkg_name(bytes: &[u8]) -> bool {
-    for &byte in bytes {
-        if !is_valid_package_name_byte(byte) {
-            return false;
-        }
-    }
-    true
+    bytes.iter().all(|&byte| is_valid_package_name_byte(byte))
 }
 
 impl TryFrom<String> for PackageName {
