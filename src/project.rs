@@ -139,12 +139,6 @@ fn find_packages(root: &Path, globs: Vec<String>) -> Vec<PathBuf> {
     let mut package_json_paths = vec![];
 
     for result in WalkBuilder::new(root)
-        .ignore(false)
-        .hidden(false)
-        .parents(false)
-        .git_ignore(false)
-        .git_exclude(false)
-        .git_global(false)
         .overrides(overrides_thing.clone())
         .build()
     {
