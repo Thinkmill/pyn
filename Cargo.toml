@@ -2,7 +2,7 @@
 name = "pyn"
 description = "A wrapper for the JavaScript package managers: npm, pnpm, and Yarn"
 license = "MIT"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["mitchellhamilton <mitchell@hamil.town>"]
 homepage = "https://github.com/Thinkmill/pyn"
 repository = "https://github.com/Thinkmill/pyn"
