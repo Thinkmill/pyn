@@ -82,20 +82,6 @@ impl Ord for PackageName {
     }
 }
 
-pub struct ScopedPackageName<'a> {
-    scope: &'a str,
-    name: &'a str,
-}
-
-impl ScopedPackageName<'_> {
-    pub fn scope(&self) -> &str {
-        self.scope
-    }
-    pub fn name(&self) -> &str {
-        self.name
-    }
-}
-
 fn is_valid_package_name_byte(byte: u8) -> bool {
     match byte {
         b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'.' => true,
@@ -142,18 +128,6 @@ fn keystone_monorepo_name() {
 impl PackageName {
     pub fn as_str(&self) -> &str {
         self.name.as_ref()
-    }
-    pub fn is_scoped(&self) -> bool {
-        self.scoped_name_start.is_some()
-    }
-    pub fn scoped(&self) -> Option<ScopedPackageName<'_>> {
-        match self.scoped_name_start {
-            Some(pos) => Some(ScopedPackageName {
-                name: &self.as_str()[1..pos.get() - 1],
-                scope: &self.as_str()[pos.get()..],
-            }),
-            None => None,
-        }
     }
     pub fn new(name: String) -> Result<PackageName, PackageNameParseError> {
         if name.len() > 214 || name.len() == 0 {

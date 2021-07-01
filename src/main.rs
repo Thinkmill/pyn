@@ -1,4 +1,3 @@
-use package_json::PackageJson;
 pub(crate) use package_name::PackageName;
 use project::{Package, Project};
 use serde::Deserialize;
@@ -124,7 +123,6 @@ fn run_script_or_binary(current_dir: &Path, project: &Project, args: &[String]) 
     let pkg = Package::find(current_dir)?.pkg_json;
     let bin = args[0].as_ref();
     let status = if pkg.scripts.contains_key(bin) {
-        let project = Project::find(current_dir)?;
         project.manager.cmd().arg("run").args(args).status()?
     } else {
         let binary = find_binary_location(current_dir, &bin)?;

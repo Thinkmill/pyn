@@ -3,10 +3,7 @@ use linked_hash_map::LinkedHashMap as InsertionOrderMap;
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use std::{
-    collections::BTreeMap as KeyOrderedMap,
-    convert::TryFrom,
-    io::ErrorKind,
-    path::{Path, PathBuf},
+    collections::BTreeMap as KeyOrderedMap, convert::TryFrom, io::ErrorKind, path::Path,
     str::FromStr,
 };
 
