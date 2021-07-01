@@ -13,9 +13,10 @@ use thiserror::Error;
 
 mod package_json;
 mod package_name;
+mod project;
 
 #[derive(Debug, Error)]
-enum Error {
+pub enum Error {
     #[error("No lockfile could be found. If you haven't used a package manager in this project yet, please do that first to generate a lockfile")]
     CouldNotFindLockfile,
     #[error("Could not find a script or binary named {0}")]
@@ -25,7 +26,9 @@ enum Error {
     #[error("{0}")]
     Io(#[from] io::Error),
     #[error("{0}")]
-    Serde(#[from] serde_json::Error),
+    SerdeJson(#[from] serde_json::Error),
+    #[error("{0}")]
+    SerdeYaml(#[from] serde_yaml::Error),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -55,7 +58,7 @@ fn get_latest_version_of_react() {
     assert_eq!(result, "17.0.2")
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum PackageManager {
     PNPM,
     NPM,

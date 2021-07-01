@@ -17,9 +17,10 @@ serde_json = {version = "1.0.64", features=["preserve_order"]}
 serde = { version = "1.0.125", features = ["derive"] }
 displaydoc = "0.2"
 linked-hash-map = {version="0.5.4",features=["serde_impl"]}
-ignore = "0.4.17"
 structopt = {version = "0.3"}
 reqwest = { version = "0.11.3", features=["blocking", "json"] }
+serde_yaml = "0.8"
+ignore = "0.4.18"
 
 [profile.release]
 lto = true

@@ -1,4 +1,4 @@
-use crate::PackageName;
+use crate::{Error, PackageName};
 use linked_hash_map::LinkedHashMap as InsertionOrderMap;
 use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
 use serde_json::Value;
@@ -7,6 +7,7 @@ use std::{
     convert::TryFrom,
     io::ErrorKind,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 type Dependencies = KeyOrderedMap<PackageName, String>;
@@ -61,6 +62,13 @@ impl PackageJson {
             }
             Err(err) => Err(err.into()),
         }
+    }
+}
+
+impl FromStr for PackageJson {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(serde_json::from_str(s)?)
     }
 }
 
