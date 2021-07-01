@@ -42,27 +42,6 @@ impl PackageJson {
         stringified.push('\n');
         std::fs::write(path, stringified)
     }
-    pub fn find<P: Into<PathBuf>>(path: P) -> std::io::Result<(PackageJson, PathBuf)> {
-        let mut package_json_path = path.into();
-        package_json_path.push("package.json");
-        match std::fs::read_to_string(&package_json_path) {
-            Ok(contents) => {
-                let package_json: PackageJson = serde_json::from_str(&contents)?;
-                Ok((package_json, package_json_path))
-            }
-            Err(err) if err.kind() == ErrorKind::NotFound => {
-                if package_json_path.pop() {
-                    PackageJson::find(package_json_path)
-                } else {
-                    Err(std::io::Error::new(
-                        ErrorKind::NotFound,
-                        "could not find a package.json",
-                    ))
-                }
-            }
-            Err(err) => Err(err.into()),
-        }
-    }
 }
 
 impl FromStr for PackageJson {

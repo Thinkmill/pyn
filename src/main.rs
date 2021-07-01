@@ -1,11 +1,11 @@
 use package_json::PackageJson;
 pub(crate) use package_name::PackageName;
-use project::Project;
+use project::{Package, Project};
 use serde::Deserialize;
 use std::{
     env,
     ffi::OsStr,
-    fmt, fs, io,
+    fmt, io,
     path::{Path, PathBuf},
     process::{exit, Command},
 };
@@ -60,7 +60,7 @@ fn get_latest_version_of_react() {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum PackageManager {
+pub enum PackageManager {
     PNPM,
     NPM,
     Yarn,
@@ -121,7 +121,7 @@ fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
 // TODO: do script running in rust rather than offloading to the package manager
 // (i'm not totally sure about that)
 fn run_script_or_binary(current_dir: &Path, project: &Project, args: &[String]) -> Result<()> {
-    let (pkg, _) = PackageJson::find(current_dir)?;
+    let pkg = Package::find(current_dir)?.pkg_json;
     let bin = args[0].as_ref();
     let status = if pkg.scripts.contains_key(bin) {
         let project = Project::find(current_dir)?;
@@ -178,10 +178,10 @@ fn main() {
         .subcommand
         .unwrap_or_else(|| Subcommand::Other(vec!["install".to_owned()]));
     let current_dir = env::current_dir().unwrap();
-    let project = Project::find(&current_dir).unwrap();
+    let mut project = Project::find(&current_dir).unwrap();
     match opt {
         Subcommand::Scripts => {
-            let (pkg_json, _) = PackageJson::find(&current_dir).unwrap();
+            let pkg_json = Package::find(&current_dir).unwrap().pkg_json;
             println!("Available scripts:\n{:#?}", pkg_json.scripts);
         }
         Subcommand::Add {
@@ -189,18 +189,18 @@ fn main() {
             skip_install,
             dev,
         } => {
-            let (mut pkg_json, pkg_json_path) = PackageJson::find(&current_dir).unwrap();
+            let mut pkg = Package::find(&current_dir).unwrap();
             // add the dependencies
             for dep in dependencies {
                 let version = get_npm_package_version(dep.as_str());
                 if dev {
-                    pkg_json.dev_dependencies.insert(dep, version);
+                    pkg.pkg_json.dev_dependencies.insert(dep, version);
                 } else {
-                    pkg_json.dependencies.insert(dep, version);
+                    pkg.pkg_json.dependencies.insert(dep, version);
                 }
             }
             // write the updated package.json back to disk
-            pkg_json.write(&pkg_json_path).unwrap();
+            pkg.write().unwrap();
             // run install
             if !skip_install {
                 run_package_manager_at_project_root(&project, &["install"]).unwrap();
@@ -212,26 +212,40 @@ fn main() {
             skip_install,
         } => {
             println!("Removing {:?}", dependencies);
-            let do_remove = |mut pkg_json: PackageJson, pkg_json_path: &Path| {
+            let do_remove = |pkg: &mut Package| {
                 // remove the dependencies
-                for pkg in &dependencies {
-                    pkg_json.remove_dep(pkg);
+                for dep in &dependencies {
+                    pkg.pkg_json.remove_dep(dep);
                 }
                 // write the updated package.json back to disk
-                pkg_json.write(&pkg_json_path).unwrap();
-                // run install
-                if !skip_install {
-                    run_package_manager_at_project_root(&project, &["install"]).unwrap();
-                }
+                pkg.write().unwrap();
             };
             if everywhere {
-                // TODO: Find workspaces, and all the package.jsons, and remove the dependencies from them
-                println!("Remove from everywhere is not implemented yet");
-                exit(1);
+                let packages = match &mut project.packages {
+                    Some(packages) => packages,
+                    None => {
+                        eprintln!(
+                            "This project is not a monorepo, you can't use the --everywhere flag."
+                        );
+                        exit(1);
+                    }
+                };
+                for pkg in packages
+                    .iter_mut()
+                    .map(|(_, pkg)| pkg)
+                    .chain(std::iter::once(&mut project.root))
+                {
+                    do_remove(pkg);
+                }
+                // Loop and call do_remove
             } else {
                 // find the closest package json
-                let (pkg_json, pkg_json_path) = PackageJson::find(&current_dir).unwrap();
-                do_remove(pkg_json, &pkg_json_path)
+                let mut pkg = Package::find(&current_dir).unwrap();
+                do_remove(&mut pkg)
+            }
+            // run install
+            if !skip_install {
+                run_package_manager_at_project_root(&project, &["install"]).unwrap();
             }
         }
         Subcommand::Other(args) => {

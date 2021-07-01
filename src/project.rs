@@ -32,6 +32,27 @@ pub struct Package {
 }
 
 impl Package {
+    pub fn find<P: Into<PathBuf>>(path: P) -> std::io::Result<Package> {
+        let mut pkg_json_path = path.into();
+        pkg_json_path.push("package.json");
+        match std::fs::read_to_string(&pkg_json_path) {
+            Ok(contents) => Ok(Package {
+                pkg_json_path,
+                pkg_json: serde_json::from_str(&contents)?,
+            }),
+            Err(err) if err.kind() == ErrorKind::NotFound => {
+                if pkg_json_path.pop() {
+                    Package::find(pkg_json_path)
+                } else {
+                    Err(std::io::Error::new(
+                        ErrorKind::NotFound,
+                        "could not find a package.json",
+                    ))
+                }
+            }
+            Err(err) => Err(err.into()),
+        }
+    }
     pub fn path(&self) -> &Path {
         self.pkg_json_path.parent().unwrap()
     }
@@ -49,7 +70,7 @@ pub struct Project {
 
 impl Project {
     pub fn dir(&self) -> &Path {
-        self.root.path().parent().unwrap()
+        self.root.path()
     }
     pub fn find(path: &Path) -> Result<Project, Error> {
         let dir = fs::read_dir(path)?;
@@ -99,14 +120,9 @@ impl Project {
                     find_packages(path, globs)
                         .into_iter()
                         .map(|path| {
-                            let pkg_json = PackageJson::find(path.parent().unwrap()).unwrap().0;
-                            (
-                                pkg_json.name.clone(),
-                                Package {
-                                    pkg_json,
-                                    pkg_json_path: path,
-                                },
-                            )
+                            let pkg = Package::find(path.parent().unwrap()).unwrap();
+                            let name = pkg.pkg_json.name.clone();
+                            (name, pkg)
                         })
                         .collect()
                 }),
