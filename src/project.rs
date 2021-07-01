@@ -26,28 +26,31 @@ struct PackageJsonForNpmOrYarnWorkspaceConfig {
 }
 
 #[derive(Debug)]
-struct Package {
-    pkg_json_path: PathBuf,
+pub struct Package {
+    pub pkg_json_path: PathBuf,
     pub pkg_json: PackageJson,
 }
 
 impl Package {
-    fn path(&self) -> &Path {
+    pub fn path(&self) -> &Path {
         self.pkg_json_path.parent().unwrap()
     }
-    fn write(&self) -> std::io::Result<()> {
+    pub fn write(&self) -> std::io::Result<()> {
         self.pkg_json.write(&self.pkg_json_path)
     }
 }
 
 #[derive(Debug)]
-struct Project {
-    root: Package,
-    packages: Option<HashMap<PackageName, Package>>,
-    manager: PackageManager,
+pub struct Project {
+    pub root: Package,
+    pub packages: Option<HashMap<PackageName, Package>>,
+    pub manager: PackageManager,
 }
 
 impl Project {
+    pub fn dir(&self) -> &Path {
+        self.root.path().parent().unwrap()
+    }
     pub fn find(path: &Path) -> Result<Project, Error> {
         let dir = fs::read_dir(path)?;
 
@@ -83,6 +86,12 @@ impl Project {
                     }
                 }
             };
+
+            eprintln!(
+                "🧞 Found {} project at {}",
+                package_manager,
+                pkg_json_path.parent().unwrap().display()
+            );
 
             return Ok(Project {
                 manager: package_manager,

@@ -1,5 +1,6 @@
 use package_json::PackageJson;
 pub(crate) use package_name::PackageName;
+use project::Project;
 use serde::Deserialize;
 use std::{
     env,
@@ -85,49 +86,15 @@ impl PackageManager {
     }
 }
 
-struct ProjectRoot {
-    package_manager: PackageManager,
-    dir: Box<Path>,
-}
-
-impl ProjectRoot {
-    fn find(path: &Path) -> Result<ProjectRoot> {
-        let dir = fs::read_dir(path)?;
-
-        for entry in dir {
-            let entry = entry?;
-            let package_manager = match entry.file_name().to_str() {
-                Some("yarn.lock") => PackageManager::Yarn,
-                Some("pnpm-lock.yaml") => PackageManager::PNPM,
-                Some("package-lock.json") => PackageManager::NPM,
-                _ => continue,
-            };
-            let project = ProjectRoot {
-                dir: Box::from(path),
-                package_manager,
-            };
-            return Ok(project);
-        }
-        if let Some(parent_path) = path.parent() {
-            ProjectRoot::find(parent_path)
-        } else {
-            Err(Error::CouldNotFindLockfile)
-        }
-    }
-}
-
-fn run_package_manager_at_project_root<S: AsRef<OsStr>>(path: &Path, args: &[S]) -> Result<()> {
-    let project = ProjectRoot::find(path)?;
-    eprintln!(
-        "🧞 Found {} project at {}",
-        project.package_manager,
-        project.dir.to_string_lossy()
-    );
+fn run_package_manager_at_project_root<S: AsRef<OsStr>>(
+    project: &Project,
+    args: &[S],
+) -> Result<()> {
     let status = project
-        .package_manager
+        .manager
         .cmd()
         .args(args)
-        .current_dir(path)
+        .current_dir(project.dir())
         .status()?;
 
     let code = status.code().unwrap_or(1);
@@ -153,17 +120,12 @@ fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
 
 // TODO: do script running in rust rather than offloading to the package manager
 // (i'm not totally sure about that)
-fn run_script_or_binary(current_dir: &Path, args: &[String]) -> Result<()> {
+fn run_script_or_binary(current_dir: &Path, project: &Project, args: &[String]) -> Result<()> {
     let (pkg, _) = PackageJson::find(current_dir)?;
     let bin = args[0].as_ref();
     let status = if pkg.scripts.contains_key(bin) {
-        let project = ProjectRoot::find(current_dir)?;
-        project
-            .package_manager
-            .cmd()
-            .arg("run")
-            .args(args)
-            .status()?
+        let project = Project::find(current_dir)?;
+        project.manager.cmd().arg("run").args(args).status()?
     } else {
         let binary = find_binary_location(current_dir, &bin)?;
         Command::new(binary).args(&args[1..]).status()?
@@ -216,7 +178,7 @@ fn main() {
         .subcommand
         .unwrap_or_else(|| Subcommand::Other(vec!["install".to_owned()]));
     let current_dir = env::current_dir().unwrap();
-
+    let project = Project::find(&current_dir).unwrap();
     match opt {
         Subcommand::Scripts => {
             let (pkg_json, _) = PackageJson::find(&current_dir).unwrap();
@@ -241,7 +203,7 @@ fn main() {
             pkg_json.write(&pkg_json_path).unwrap();
             // run install
             if !skip_install {
-                run_package_manager_at_project_root(&current_dir, &["install"]).unwrap();
+                run_package_manager_at_project_root(&project, &["install"]).unwrap();
             }
         }
         Subcommand::Remove {
@@ -250,18 +212,16 @@ fn main() {
             skip_install,
         } => {
             println!("Removing {:?}", dependencies);
-            let do_remove = |pkg_jsons: &mut [(PackageJson, PathBuf)]| {
-                for (pkg_json, pkg_json_path) in pkg_jsons {
-                    // remove the dependencies
-                    for pkg in &dependencies {
-                        pkg_json.remove_dep(pkg);
-                    }
-                    // write the updated package.json back to disk
-                    pkg_json.write(&pkg_json_path).unwrap();
-                    // run install
-                    if !skip_install {
-                        run_package_manager_at_project_root(&current_dir, &["install"]).unwrap();
-                    }
+            let do_remove = |mut pkg_json: PackageJson, pkg_json_path: &Path| {
+                // remove the dependencies
+                for pkg in &dependencies {
+                    pkg_json.remove_dep(pkg);
+                }
+                // write the updated package.json back to disk
+                pkg_json.write(&pkg_json_path).unwrap();
+                // run install
+                if !skip_install {
+                    run_package_manager_at_project_root(&project, &["install"]).unwrap();
                 }
             };
             if everywhere {
@@ -270,16 +230,16 @@ fn main() {
                 exit(1);
             } else {
                 // find the closest package json
-                let pkg_json = PackageJson::find(&current_dir).unwrap();
-                do_remove(&mut [pkg_json])
+                let (pkg_json, pkg_json_path) = PackageJson::find(&current_dir).unwrap();
+                do_remove(pkg_json, &pkg_json_path)
             }
         }
         Subcommand::Other(args) => {
             let result = match args.get(0).unwrap().as_str() {
                 "add" | "install" | "remove" | "why" => {
-                    run_package_manager_at_project_root(&current_dir, &args)
+                    run_package_manager_at_project_root(&project, &args)
                 }
-                _ => run_script_or_binary(&current_dir, &args),
+                _ => run_script_or_binary(&current_dir, &project, &args),
             };
             if let Err(err) = result {
                 match err {
