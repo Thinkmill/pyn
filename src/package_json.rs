@@ -1,11 +1,12 @@
 use crate::{Error, PackageName};
 use linked_hash_map::LinkedHashMap as InsertionOrderMap;
-use serde::{ser::SerializeMap, Deserialize, Serialize, Serializer};
-use serde_json::Value;
-use std::{
-    collections::BTreeMap as KeyOrderedMap, convert::TryFrom, io::ErrorKind, path::Path,
-    str::FromStr,
+use serde::{
+    de::{self, Visitor},
+    ser::SerializeMap,
+    Deserialize, Serialize, Serializer,
 };
+use serde_json::Value;
+use std::{collections::BTreeMap as KeyOrderedMap, path::Path, str::FromStr};
 
 type Dependencies = KeyOrderedMap<PackageName, String>;
 
@@ -15,8 +16,7 @@ enum PkgJsonValue {
     Value(Value),
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(try_from = "InsertionOrderMap<String, Value>")]
+#[derive(Debug, Clone)]
 pub struct PackageJson {
     pub name: PackageName,
     pub dependencies: Dependencies,
@@ -28,6 +28,13 @@ pub struct PackageJson {
 }
 
 impl PackageJson {
+    pub fn iter_normal_deps(&self) -> impl Iterator<Item = &Dependencies> {
+        IntoIterator::into_iter([
+            &self.dependencies,
+            &self.dev_dependencies,
+            &self.optional_dependencies,
+        ])
+    }
     pub fn remove_dep(&mut self, pkg: &PackageName) {
         self.dependencies.remove(pkg);
         self.dev_dependencies.remove(pkg);
@@ -88,54 +95,72 @@ const DEPENDENCY_TYPES: [&'static str; 4] = [
     "optionalDependencies",
 ];
 
-impl TryFrom<InsertionOrderMap<String, Value>> for PackageJson {
-    type Error = std::io::Error;
-    fn try_from(value: InsertionOrderMap<String, Value>) -> Result<Self, Self::Error> {
-        let mut name = None;
-        let mut scripts = InsertionOrderMap::new();
-        let mut dependencies = KeyOrderedMap::new();
-        let mut dev_dependencies = KeyOrderedMap::new();
-        let mut peer_dependencies = KeyOrderedMap::new();
-        let mut optional_dependencies = KeyOrderedMap::new();
-        let mut storage = InsertionOrderMap::with_capacity(value.len());
-        for (key, value) in value {
-            let map = match key.as_str() {
-                "name" => {
-                    name = Some(serde_json::from_value(value)?);
+impl<'de> Deserialize<'de> for PackageJson {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct PackageJsonVisitor;
+        impl<'de> Visitor<'de> for PackageJsonVisitor {
+            type Value = PackageJson;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "a package.json")
+            }
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut storage = InsertionOrderMap::with_capacity(map.size_hint().unwrap_or(0));
+                let mut name = None;
+                let mut scripts = InsertionOrderMap::new();
+                let mut dependencies = KeyOrderedMap::new();
+                let mut dev_dependencies = KeyOrderedMap::new();
+                let mut peer_dependencies = KeyOrderedMap::new();
+                let mut optional_dependencies = KeyOrderedMap::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    let dep_map = match key.as_str() {
+                        "name" => {
+                            if name.is_some() {
+                                return Err(de::Error::duplicate_field("name"));
+                            }
+                            name = Some(map.next_value()?);
+                            storage.insert(key, PkgJsonValue::StoredElsewhere);
+                            continue;
+                        }
+                        "scripts" => {
+                            scripts = map.next_value()?;
+                            storage.insert(key, PkgJsonValue::StoredElsewhere);
+                            continue;
+                        }
+                        "dependencies" => &mut dependencies,
+                        "devDependencies" => &mut dev_dependencies,
+                        "peerDependencies" => &mut peer_dependencies,
+                        "optionalDependencies" => &mut optional_dependencies,
+                        _ => {
+                            storage.insert(key, PkgJsonValue::Value(map.next_value()?));
+                            continue;
+                        }
+                    };
+                    *dep_map = map.next_value()?;
                     storage.insert(key, PkgJsonValue::StoredElsewhere);
-                    continue;
                 }
-                "scripts" => {
-                    scripts = serde_json::from_value(value)?;
-                    storage.insert(key, PkgJsonValue::StoredElsewhere);
-                    continue;
+
+                for &dep_type in &DEPENDENCY_TYPES {
+                    if !storage.contains_key(dep_type) {
+                        storage.insert(dep_type.to_owned(), PkgJsonValue::StoredElsewhere);
+                    }
                 }
-                "dependencies" => &mut dependencies,
-                "devDependencies" => &mut dev_dependencies,
-                "peerDependencies" => &mut peer_dependencies,
-                "optionalDependencies" => &mut optional_dependencies,
-                _ => {
-                    storage.insert(key, PkgJsonValue::Value(value));
-                    continue;
-                }
-            };
-            *map = serde_json::from_value(value)?;
-            storage.insert(key, PkgJsonValue::StoredElsewhere);
-        }
-        for &dep_type in &DEPENDENCY_TYPES {
-            if !storage.contains_key(dep_type) {
-                storage.insert(dep_type.to_owned(), PkgJsonValue::StoredElsewhere);
+                Ok(PackageJson {
+                    name: name.ok_or_else(|| de::Error::missing_field("name"))?,
+                    scripts,
+                    dependencies,
+                    dev_dependencies,
+                    optional_dependencies,
+                    peer_dependencies,
+                    storage,
+                })
             }
         }
-        Ok(PackageJson {
-            name: name
-                .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, "missing name field"))?,
-            scripts,
-            dependencies,
-            dev_dependencies,
-            optional_dependencies,
-            peer_dependencies,
-            storage,
-        })
+        deserializer.deserialize_map(PackageJsonVisitor)
     }
 }

@@ -120,7 +120,7 @@ fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
 // TODO: do script running in rust rather than offloading to the package manager
 // (i'm not totally sure about that)
 fn run_script_or_binary(current_dir: &Path, project: &Project, args: &[String]) -> Result<()> {
-    let pkg = Package::find(current_dir)?.pkg_json;
+    let pkg = &project.closest_pkg(current_dir).unwrap().pkg_json;
     let bin = args[0].as_ref();
     let status = if pkg.scripts.contains_key(bin) {
         project.manager.cmd().arg("run").args(args).status()?
@@ -171,6 +171,28 @@ struct Opts {
     subcommand: Option<Subcommand>,
 }
 
+fn add(
+    project: &mut Project,
+    current_dir: &Path,
+    dependencies: Vec<PackageName>,
+    dev: bool,
+) -> Result<()> {
+    let pkg = project.closest_pkg_mut(&current_dir).unwrap();
+
+    for dep in dependencies {
+        let latest_version = get_npm_package_version(dep.as_str());
+        // let project_version =
+        if dev {
+            pkg.pkg_json.dev_dependencies.insert(dep, latest_version);
+        } else {
+            pkg.pkg_json.dependencies.insert(dep, latest_version);
+        }
+    }
+    // write the updated package.json back to disk
+    pkg.write()?;
+    Ok(())
+}
+
 fn main() {
     let opt = Opts::from_args()
         .subcommand
@@ -179,7 +201,7 @@ fn main() {
     let mut project = Project::find(&current_dir).unwrap();
     match opt {
         Subcommand::Scripts => {
-            let pkg_json = Package::find(&current_dir).unwrap().pkg_json;
+            let pkg_json = &project.closest_pkg(&current_dir).unwrap().pkg_json;
             println!("Available scripts:\n{:#?}", pkg_json.scripts);
         }
         Subcommand::Add {
@@ -187,18 +209,8 @@ fn main() {
             skip_install,
             dev,
         } => {
-            let mut pkg = Package::find(&current_dir).unwrap();
-            // add the dependencies
-            for dep in dependencies {
-                let version = get_npm_package_version(dep.as_str());
-                if dev {
-                    pkg.pkg_json.dev_dependencies.insert(dep, version);
-                } else {
-                    pkg.pkg_json.dependencies.insert(dep, version);
-                }
-            }
-            // write the updated package.json back to disk
-            pkg.write().unwrap();
+            // add the dependency
+            add(&mut project, &current_dir, dependencies, dev).unwrap();
             // run install
             if !skip_install {
                 run_package_manager_at_project_root(&project, &["install"]).unwrap();
@@ -219,8 +231,8 @@ fn main() {
                 pkg.write().unwrap();
             };
             if everywhere {
-                let packages = match &mut project.packages {
-                    Some(packages) => packages,
+                match &mut project.packages {
+                    Some(_) => (),
                     None => {
                         eprintln!(
                             "This project is not a monorepo, you can't use the --everywhere flag."
@@ -228,18 +240,14 @@ fn main() {
                         exit(1);
                     }
                 };
-                for pkg in packages
-                    .iter_mut()
-                    .map(|(_, pkg)| pkg)
-                    .chain(std::iter::once(&mut project.root))
-                {
+                for pkg in project.iter_mut() {
                     do_remove(pkg);
                 }
                 // Loop and call do_remove
             } else {
                 // find the closest package json
-                let mut pkg = Package::find(&current_dir).unwrap();
-                do_remove(&mut pkg)
+                let pkg = project.closest_pkg_mut(&current_dir).unwrap();
+                do_remove(pkg)
             }
             // run install
             if !skip_install {

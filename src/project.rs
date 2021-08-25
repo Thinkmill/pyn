@@ -2,8 +2,8 @@ use crate::{package_json::PackageJson, package_name::PackageName, Error, Package
 use ignore::WalkBuilder;
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
-    env, fs,
+    collections::{BTreeMap, HashMap},
+    fs,
     io::ErrorKind,
     path::{Path, PathBuf},
 };
@@ -68,10 +68,95 @@ pub struct Project {
     pub manager: PackageManager,
 }
 
+/*
+You are adding 'next' to this package. Did you mean:
+o "^11.1.0" (latest on npm)
+o "^11.0.1" (used in "@examples/next-demo")
+o "^10.3.1" (used in "@keystone-next/keystone" and 3 other packages)
+*/
+
 impl Project {
     pub fn dir(&self) -> &Path {
         self.root.path()
     }
+    /**
+    Finds all the usages of a dependency, returning the versions used, and the
+    names of the packages where each version is specified.
+    */
+    pub fn find_dependents(&self, name: &PackageName) -> BTreeMap<String, Vec<PackageName>> {
+        let mut matches: BTreeMap<String, Vec<PackageName>> = Default::default();
+        for pkg in self.iter() {
+            for deps in pkg.pkg_json.iter_normal_deps() {
+                if let Some(specifier) = deps.get(name) {
+                    matches
+                        .entry(specifier.clone())
+                        .or_default()
+                        .push(pkg.pkg_json.name.clone())
+                }
+            }
+        }
+
+        matches
+    }
+    pub fn get(&self, name: &PackageName) -> Option<&Package> {
+        if &self.root.pkg_json.name == name {
+            Some(&self.root)
+        } else {
+            self.packages.as_ref().and_then(|map| map.get(name))
+        }
+    }
+    pub fn get_mut(&mut self, name: &PackageName) -> Option<&mut Package> {
+        if &self.root.pkg_json.name == name {
+            Some(&mut self.root)
+        } else {
+            self.packages.as_mut().and_then(|map| map.get_mut(name))
+        }
+    }
+    pub fn closest_pkg(&self, mut path: &Path) -> Option<&Package> {
+        let mut pkg_map = HashMap::new();
+        pkg_map.insert(self.root.path(), &self.root);
+        if let Some(pkgs) = &self.packages {
+            for (_, pkg) in pkgs {
+                pkg_map.insert(pkg.path(), pkg);
+            }
+        }
+
+        loop {
+            match pkg_map.get(path) {
+                Some(&pkg) => break Some(pkg),
+                None => match path.parent() {
+                    Some(parent_path) => path = parent_path,
+                    None => break None,
+                },
+            }
+        }
+    }
+    pub fn closest_pkg_mut(&mut self, path: &Path) -> Option<&mut Package> {
+        match self.closest_pkg(path) {
+            Some(pkg) => {
+                let name = pkg.pkg_json.name.clone();
+                self.get_mut(&name)
+            }
+            None => None,
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Package> {
+        self.packages
+            .iter_mut()
+            .map(|map| map.iter_mut().map(|(_, pkg)| pkg))
+            .flatten()
+            .chain(std::iter::once(&mut self.root))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Package> {
+        self.packages
+            .iter()
+            .map(|map| map.iter().map(|(_, pkg)| pkg))
+            .flatten()
+            .chain(std::iter::once(&self.root))
+    }
+
     pub fn find(path: &Path) -> Result<Project, Error> {
         let dir = fs::read_dir(path)?;
 
