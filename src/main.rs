@@ -171,22 +171,50 @@ struct Opts {
     subcommand: Option<Subcommand>,
 }
 
+fn add_dep(pkg: &mut Package, dep: PackageName, version: String, dev: bool) {
+    if dev {
+        pkg.pkg_json.dev_dependencies.insert(dep, version);
+    } else {
+        pkg.pkg_json.dependencies.insert(dep, version);
+    }
+}
+
 fn add(
     project: &mut Project,
     current_dir: &Path,
     dependencies: Vec<PackageName>,
     dev: bool,
 ) -> Result<()> {
-    let pkg = project.closest_pkg_mut(&current_dir).unwrap();
+    let mut pkg = project.closest_pkg(&current_dir).unwrap().clone();
 
     for dep in dependencies {
-        let latest_version = get_npm_package_version(dep.as_str());
-        // let project_version =
-        if dev {
-            pkg.pkg_json.dev_dependencies.insert(dep, latest_version);
+        let existing_versions = project.find_dependents(&dep);
+        let latest_version = format!("^{}", get_npm_package_version(dep.as_str()));
+        if existing_versions.len() == 0 || existing_versions.get(&latest_version).is_some() {
+            add_dep(&mut pkg, dep, latest_version, dev);
         } else {
-            pkg.pkg_json.dependencies.insert(dep, latest_version);
+            use dialoguer::{theme::ColorfulTheme, Select};
+            println!(
+                "There are multiple versions of {} in the repo, which one do you want to add?",
+                &dep
+            );
+
+            let latest_dep_string = format!("{} (latest version)", &latest_version);
+
+            let items: Vec<_> = std::iter::once(&latest_dep_string)
+                .chain(existing_versions.keys())
+                .collect();
+            let selection = Select::with_theme(&ColorfulTheme::default())
+                .items(&items)
+                .default(0)
+                .interact()?;
+            let version = match selection {
+                0 => latest_version,
+                _ => items[selection].clone(),
+            };
+            add_dep(&mut pkg, dep, version, dev);
         }
+        // let project_version =
     }
     // write the updated package.json back to disk
     pkg.write()?;

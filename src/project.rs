@@ -25,7 +25,7 @@ struct PackageJsonForNpmOrYarnWorkspaceConfig {
     workspaces: Option<NpmOrYarnWorkspaceConfig>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Package {
     pub pkg_json_path: PathBuf,
     pub pkg_json: PackageJson,
@@ -61,7 +61,7 @@ impl Package {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Project {
     pub root: Package,
     pub packages: Option<HashMap<PackageName, Package>>,
@@ -75,6 +75,8 @@ o "^11.0.1" (used in "@examples/next-demo")
 o "^10.3.1" (used in "@keystone-next/keystone" and 3 other packages)
 */
 
+type VersionSpecifier = String;
+
 impl Project {
     pub fn dir(&self) -> &Path {
         self.root.path()
@@ -83,8 +85,11 @@ impl Project {
     Finds all the usages of a dependency, returning the versions used, and the
     names of the packages where each version is specified.
     */
-    pub fn find_dependents(&self, name: &PackageName) -> BTreeMap<String, Vec<PackageName>> {
-        let mut matches: BTreeMap<String, Vec<PackageName>> = Default::default();
+    pub fn find_dependents(
+        &self,
+        name: &PackageName,
+    ) -> BTreeMap<VersionSpecifier, Vec<PackageName>> {
+        let mut matches: BTreeMap<VersionSpecifier, Vec<PackageName>> = Default::default();
         for pkg in self.iter() {
             for deps in pkg.pkg_json.iter_normal_deps() {
                 if let Some(specifier) = deps.get(name) {
