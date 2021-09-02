@@ -230,19 +230,6 @@ impl Project {
     }
 }
 
-#[test]
-fn project_find() {
-    let mut current_dir = env::current_dir().unwrap();
-    current_dir.push("fixtures/basic");
-    dbg!(Project::find(&current_dir));
-}
-
-#[test]
-fn find_packages_test() {
-    let mut current_dir = env::current_dir().unwrap();
-    current_dir.push("fixtures/basic");
-    dbg!(find_packages(&current_dir, vec!["packages/*".to_owned()]));
-}
 fn find_packages(root: &Path, globs: Vec<String>) -> Vec<PathBuf> {
     let mut builder = ignore::overrides::OverrideBuilder::new(root);
     for mut glob in globs {
@@ -265,4 +252,23 @@ fn find_packages(root: &Path, globs: Vec<String>) -> Vec<PathBuf> {
         }
     }
     package_json_paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    #[test]
+    fn project_find() {
+        let mut current_dir = env::current_dir().unwrap();
+        current_dir.push("fixtures/basic");
+        dbg!(Project::find(&current_dir).unwrap());
+    }
+
+    #[test]
+    fn find_packages_test() {
+        let mut current_dir = env::current_dir().unwrap();
+        current_dir.push("fixtures/basic");
+        dbg!(find_packages(&current_dir, vec!["packages/*".to_owned()]));
+    }
 }
