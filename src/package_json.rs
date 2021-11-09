@@ -29,11 +29,12 @@ pub struct PackageJson {
 
 impl PackageJson {
     pub fn iter_normal_deps(&self) -> impl Iterator<Item = &Dependencies> {
-        IntoIterator::into_iter([
+        [
             &self.dependencies,
             &self.dev_dependencies,
             &self.optional_dependencies,
-        ])
+        ]
+        .into_iter()
     }
     pub fn remove_dep(&mut self, pkg: &PackageName) {
         self.dependencies.remove(pkg);

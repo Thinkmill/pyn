@@ -34,27 +34,34 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Deserialize)]
-struct PackageJsonFromUnpkg {
-    version: String,
+struct RegistryMetadata {
+    #[serde(rename = "dist-tags")]
+    dist_tags: DistTags,
 }
 
-fn get_npm_package_version(package: &str) -> String {
+#[derive(Deserialize)]
+struct DistTags {
+    latest: String,
+}
+
+fn get_npm_package_version(package: &str) -> std::result::Result<String, reqwest::Error> {
     let client = reqwest::blocking::Client::new();
-    let request_url = String::from("https://unpkg.com/") + package + "/package.json";
 
     let pkg_json = client
-        .get(request_url)
-        .send()
-        .unwrap()
-        .json::<PackageJsonFromUnpkg>()
-        .unwrap();
-    pkg_json.version
+        .get(format!("https://registry.npmjs.org/{}", package))
+        .header(
+            reqwest::header::ACCEPT,
+            "application/vnd.npm.install-v1+json",
+        )
+        .send()?
+        .json::<RegistryMetadata>()?;
+    Ok(pkg_json.dist_tags.latest)
 }
 
 // This will keep breaking as the version of react changes, use for debug at will
 #[test]
 fn get_latest_version_of_react() {
-    let result = get_npm_package_version("react");
+    let result = get_npm_package_version("react").unwrap();
     assert_eq!(result, "17.0.2")
 }
 
@@ -160,6 +167,13 @@ enum Subcommand {
         #[structopt(long, short)]
         skip_install: bool,
     },
+    /// Upgrades a dependency everywhere in the project and runs install
+    Upgrade {
+        dependencies: Vec<PackageName>,
+        /// Skips the install step
+        #[structopt(long, short)]
+        skip_install: bool,
+    },
     #[structopt(external_subcommand)]
     Other(Vec<String>),
 }
@@ -189,15 +203,22 @@ fn add(
 
     for dep in dependencies {
         let existing_versions = project.find_dependents(&dep);
-        let latest_version = format!("^{}", get_npm_package_version(dep.as_str()));
+        let latest_version = format!("^{}", get_npm_package_version(dep.as_str()).unwrap());
         if existing_versions.len() == 0 || existing_versions.get(&latest_version).is_some() {
             add_dep(&mut pkg, dep, latest_version, dev);
         } else {
             use dialoguer::{theme::ColorfulTheme, Select};
-            println!(
-                "There are multiple versions of {} in the repo, which one do you want to add?",
-                &dep
-            );
+            if existing_versions.len() > 1 {
+                println!(
+                    "There are multiple versions of {} in the repo, which one do you want to add?",
+                    &dep
+                );
+            } else {
+                println!(
+                    "An old version of {} is already in the repo, which one do you want to add?",
+                    &dep
+                );
+            }
 
             let latest_dep_string = format!("{} (latest version)", &latest_version);
 
@@ -214,10 +235,26 @@ fn add(
             };
             add_dep(&mut pkg, dep, version, dev);
         }
-        // let project_version =
     }
     // write the updated package.json back to disk
     pkg.write()?;
+    Ok(())
+}
+
+fn upgrade(project: &mut Project, dependencies: Vec<PackageName>) -> Result<()> {
+    for dep in dependencies {
+        let existing_versions = project.find_dependents(&dep);
+        let latest_version = format!("^{}", get_npm_package_version(dep.as_str()).unwrap());
+
+        if existing_versions.len() == 0 {
+            println!(
+                "{} is not present in the repo. Did you mean to add it?",
+                &dep
+            );
+        } else {
+            println!("{} has been upgraded to {}", &dep, latest_version);
+        }
+    }
     Ok(())
 }
 
@@ -239,6 +276,17 @@ fn main() {
         } => {
             // add the dependency
             add(&mut project, &current_dir, dependencies, dev).unwrap();
+            // run install
+            if !skip_install {
+                run_package_manager_at_project_root(&project, &["install"]).unwrap();
+            }
+        }
+        Subcommand::Upgrade {
+            dependencies,
+            skip_install,
+        } => {
+            // add the dependency
+            upgrade(&mut project, dependencies).unwrap();
             // run install
             if !skip_install {
                 run_package_manager_at_project_root(&project, &["install"]).unwrap();

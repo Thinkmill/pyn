@@ -6,7 +6,7 @@ version = "0.4.1"
 authors = ["mitchellhamilton <mitchell@hamil.town>"]
 homepage = "https://github.com/Thinkmill/pyn"
 repository = "https://github.com/Thinkmill/pyn"
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,11 +15,11 @@ edition = "2018"
 thiserror = "1.0"
 serde_json = {version = "1.0.64", features=["preserve_order"]}
 serde = { version = "1.0.125", features = ["derive"] }
-displaydoc = "0.2"
 linked-hash-map = {version="0.5.4",features=["serde_impl"]}
 structopt = {version = "0.3"}
 reqwest = { version = "0.11.3", features=["blocking", "json"] }
 serde_yaml = "0.8"
 ignore = "0.4.18"
 dialoguer = "0.8"
-
+tokio = {version = "1", features = ["full"]}
+futures = "0.3"
