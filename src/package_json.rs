@@ -36,11 +36,29 @@ impl PackageJson {
         ]
         .into_iter()
     }
+    pub fn iter_mut_deps(&mut self) -> impl Iterator<Item = &mut Dependencies> {
+        [
+            &mut self.peer_dependencies,
+            &mut self.optional_dependencies,
+            &mut self.dev_dependencies,
+            &mut self.dependencies,
+        ]
+        .into_iter()
+    }
     pub fn remove_dep(&mut self, pkg: &PackageName) {
-        self.dependencies.remove(pkg);
-        self.dev_dependencies.remove(pkg);
-        self.optional_dependencies.remove(pkg);
-        self.peer_dependencies.remove(pkg);
+        for deps in self.iter_mut_deps() {
+            deps.remove(pkg);
+        }
+    }
+    pub fn set_dep_version(&mut self, pkg: &PackageName, version: &String) -> Option<String> {
+        let mut old_version = None;
+        for deps in self.iter_mut_deps() {
+            if let std::collections::btree_map::Entry::Occupied(mut entry) = deps.entry(pkg.clone())
+            {
+                old_version = Some(entry.insert(version.clone()))
+            }
+        }
+        old_version
     }
     pub fn write(&self, path: &Path) -> std::io::Result<()> {
         let mut stringified = serde_json::to_string_pretty(self)?;
