@@ -252,7 +252,20 @@ fn upgrade(project: &mut Project, dependencies: Vec<PackageName>) -> Result<()> 
                 &dep
             );
         } else {
-            println!("{} has been upgraded to {}", &dep, latest_version);
+            for pkg in project.iter_mut() {
+                // upgrade the dependency
+                match pkg.pkg_json.set_dep_version(&dep, &latest_version) {
+                    Some(old_version) => {
+                        println!(
+                            "{} has been upgraded from {} to {} in {}",
+                            &dep, old_version, latest_version, pkg.pkg_json.name
+                        );
+                        // write the updated package.json back to disk
+                        pkg.write().unwrap();
+                    }
+                    None => {}
+                }
+            }
         }
     }
     Ok(())
