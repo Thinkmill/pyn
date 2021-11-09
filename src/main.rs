@@ -44,25 +44,68 @@ struct DistTags {
     latest: String,
 }
 
-fn get_npm_package_version(package: &str) -> std::result::Result<String, reqwest::Error> {
-    let client = reqwest::blocking::Client::new();
-
+async fn get_npm_package_version(
+    client: reqwest::Client,
+    package: &str,
+) -> std::result::Result<String, reqwest::Error> {
     let pkg_json = client
         .get(format!("https://registry.npmjs.org/{}", package))
         .header(
             reqwest::header::ACCEPT,
             "application/vnd.npm.install-v1+json",
         )
-        .send()?
-        .json::<RegistryMetadata>()?;
+        .send()
+        .await?
+        .json::<RegistryMetadata>()
+        .await?;
     Ok(pkg_json.dist_tags.latest)
 }
 
-// This will keep breaking as the version of react changes, use for debug at will
+#[tokio::main]
+async fn get_latest_versions(
+    packages: Vec<PackageName>,
+) -> std::result::Result<Vec<(PackageName, String)>, reqwest::Error> {
+    let client = reqwest::Client::new();
+    let mut futures_unordered = futures::stream::FuturesOrdered::new();
+    for pkg in packages {
+        let client = client.clone();
+        futures_unordered.push(async move {
+            get_npm_package_version(client, pkg.as_str())
+                .await
+                .map(|version| (pkg, version))
+        })
+    }
+    use futures::TryStreamExt;
+    futures_unordered.try_collect().await
+}
+
 #[test]
-fn get_latest_version_of_react() {
-    let result = get_npm_package_version("react").unwrap();
+fn blah() {
+    let react_name = PackageName::try_from("react").unwrap();
+    let react_dom_name = PackageName::try_from("react-dom").unwrap();
+    let mut result = get_latest_versions(vec![react_name.clone(), react_dom_name.clone()]).unwrap();
+    result.sort();
+    assert_eq!(
+        result,
+        vec![
+            (react_name, "17.0.2".into()),
+            (react_dom_name, "17.0.2".into())
+        ]
+    )
+}
+
+// This will keep breaking as the version of react changes, use for debug at will
+#[tokio::test]
+async fn get_latest_version_of_react() {
+    let result = get_npm_package_version(Default::default(), "react")
+        .await
+        .unwrap();
     assert_eq!(result, "17.0.2")
+}
+
+#[tokio::main]
+async fn get_npm_package_version_sync(pkg: &str) -> std::result::Result<String, reqwest::Error> {
+    get_npm_package_version(Default::default(), pkg).await
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -201,11 +244,13 @@ fn add(
 ) -> Result<()> {
     let mut pkg = project.closest_pkg(&current_dir).unwrap().clone();
 
-    for dep in dependencies {
+    let deps_with_latests = get_latest_versions(dependencies).unwrap();
+
+    for (dep, latest_version) in deps_with_latests {
         let existing_versions = project.find_dependents(&dep);
-        let latest_version = format!("^{}", get_npm_package_version(dep.as_str()).unwrap());
-        if existing_versions.len() == 0 || existing_versions.get(&latest_version).is_some() {
-            add_dep(&mut pkg, dep, latest_version, dev);
+        let latest_version_range = format!("^{}", latest_version);
+        if existing_versions.len() == 0 || existing_versions.get(&latest_version_range).is_some() {
+            add_dep(&mut pkg, dep, latest_version_range, dev);
         } else {
             use dialoguer::{theme::ColorfulTheme, Select};
             if existing_versions.len() > 1 {
@@ -220,7 +265,7 @@ fn add(
                 );
             }
 
-            let latest_dep_string = format!("{} (latest version)", &latest_version);
+            let latest_dep_string = format!("{} (latest version)", &latest_version_range);
 
             let items: Vec<_> = std::iter::once(&latest_dep_string)
                 .chain(existing_versions.keys())
@@ -230,7 +275,7 @@ fn add(
                 .default(0)
                 .interact()?;
             let version = match selection {
-                0 => latest_version,
+                0 => latest_version_range,
                 _ => items[selection].clone(),
             };
             add_dep(&mut pkg, dep, version, dev);
@@ -244,7 +289,7 @@ fn add(
 fn upgrade(project: &mut Project, dependencies: Vec<PackageName>) -> Result<()> {
     for dep in dependencies {
         let existing_versions = project.find_dependents(&dep);
-        let latest_version = format!("^{}", get_npm_package_version(dep.as_str()).unwrap());
+        let latest_version = format!("^{}", get_npm_package_version_sync(dep.as_str()).unwrap());
 
         if existing_versions.len() == 0 {
             println!(
