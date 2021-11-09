@@ -80,7 +80,7 @@ async fn get_latest_versions(
 }
 
 #[test]
-fn blah() {
+fn test_get_latest_versions() {
     let react_name = PackageName::try_from("react").unwrap();
     let react_dom_name = PackageName::try_from("react-dom").unwrap();
     let mut result = get_latest_versions(vec![react_name.clone(), react_dom_name.clone()]).unwrap();
@@ -101,11 +101,6 @@ async fn get_latest_version_of_react() {
         .await
         .unwrap();
     assert_eq!(result, "17.0.2")
-}
-
-#[tokio::main]
-async fn get_npm_package_version_sync(pkg: &str) -> std::result::Result<String, reqwest::Error> {
-    get_npm_package_version(Default::default(), pkg).await
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -287,9 +282,11 @@ fn add(
 }
 
 fn upgrade(project: &mut Project, dependencies: Vec<PackageName>) -> Result<()> {
-    for dep in dependencies {
+    let deps_with_latests = get_latest_versions(dependencies).unwrap();
+
+    for (dep, latest_version) in deps_with_latests {
         let existing_versions = project.find_dependents(&dep);
-        let latest_version = format!("^{}", get_npm_package_version_sync(dep.as_str()).unwrap());
+        let latest_version = format!("^{}", latest_version);
 
         if existing_versions.len() == 0 {
             println!(
