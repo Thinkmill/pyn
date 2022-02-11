@@ -4,24 +4,17 @@ use std::{
     convert::TryFrom,
     fmt::{Debug, Display, Formatter},
     hash::{Hash, Hasher},
-    num::NonZeroUsize,
     str::FromStr,
 };
 
 #[derive(Debug)]
 pub struct PackageNameParseError(String);
 
-impl PackageNameParseError {
-    pub fn name(self) -> String {
-        self.0
-    }
-}
-
 impl std::error::Error for PackageNameParseError {}
 
 impl Display for PackageNameParseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} is not a valid npm package name", self.0)
+        write!(f, "\"{}\" is not a valid npm package name", self.0)
     }
 }
 
@@ -29,7 +22,6 @@ impl Display for PackageNameParseError {
 #[serde(try_from = "String")]
 pub struct PackageName {
     name: String,
-    scoped_name_start: Option<NonZeroUsize>,
 }
 
 impl Serialize for PackageName {
@@ -142,10 +134,7 @@ impl PackageName {
                         b'/' => {
                             let rest = &bytes[pos + 2..];
                             return match is_bytes_valid_pkg_name(rest) {
-                                true => Ok(PackageName {
-                                    name,
-                                    scoped_name_start: Some(NonZeroUsize::new(pos + 1).unwrap()),
-                                }),
+                                true => Ok(PackageName { name }),
                                 false => Err(PackageNameParseError(name)),
                             };
                         }
@@ -162,57 +151,6 @@ impl PackageName {
             }
         }
 
-        if INVALID_NAMES.contains(&name.as_str()) {
-            return Err(PackageNameParseError(name));
-        }
-        Ok(PackageName {
-            name,
-            scoped_name_start: None,
-        })
+        Ok(PackageName { name })
     }
 }
-
-const INVALID_NAMES: &[&str] = &[
-    "node_modules",
-    "favicon.ico",
-    "assert",
-    "async_hooks",
-    "buffer",
-    "child_process",
-    "cluster",
-    "console",
-    "constants",
-    "crypto",
-    "dgram",
-    "dns",
-    "domain",
-    "events",
-    "fs",
-    "http",
-    "http2",
-    "https",
-    "inspector",
-    "module",
-    "net",
-    "os",
-    "path",
-    "perf_hooks",
-    "process",
-    "punycode",
-    "querystring",
-    "readline",
-    "repl",
-    "stream",
-    "string_decoder",
-    "timers",
-    "tls",
-    "trace_events",
-    "tty",
-    "url",
-    "util",
-    "v8",
-    "vm",
-    "wasi",
-    "worker_threads",
-    "zlib",
-];

@@ -1,4 +1,5 @@
-use crate::{package_json::PackageJson, package_name::PackageName, Error, PackageManager};
+use crate::{package_json::PackageJson, package_name::PackageName, PackageManager};
+use anyhow::Context;
 use ignore::WalkBuilder;
 use serde::Deserialize;
 use std::{
@@ -56,7 +57,7 @@ impl Package {
     pub fn path(&self) -> &Path {
         self.pkg_json_path.parent().unwrap()
     }
-    pub fn write(&self) -> std::io::Result<()> {
+    pub fn write(&self) -> anyhow::Result<()> {
         self.pkg_json.write(&self.pkg_json_path)
     }
 }
@@ -102,13 +103,6 @@ impl Project {
         }
 
         matches
-    }
-    pub fn get(&self, name: &PackageName) -> Option<&Package> {
-        if &self.root.pkg_json.name == name {
-            Some(&self.root)
-        } else {
-            self.packages.as_ref().and_then(|map| map.get(name))
-        }
     }
     pub fn get_mut(&mut self, name: &PackageName) -> Option<&mut Package> {
         if &self.root.pkg_json.name == name {
@@ -162,11 +156,13 @@ impl Project {
             .chain(std::iter::once(&self.root))
     }
 
-    pub fn find(path: &Path) -> Result<Project, Error> {
-        let dir = fs::read_dir(path)?;
+    pub fn find(path: &Path) -> anyhow::Result<Project> {
+        let dir =
+            fs::read_dir(path).with_context(|| format!("Failed to read dir {}", path.display()))?;
 
         for entry in dir {
-            let entry = entry?;
+            let entry =
+                entry.with_context(|| format!("Failed to read dir entry in {}", path.display()))?;
             let package_manager = match entry.file_name().to_str() {
                 Some("yarn.lock") => PackageManager::Yarn,
                 Some("pnpm-lock.yaml") => PackageManager::PNPM,
@@ -175,25 +171,37 @@ impl Project {
             };
             let pkg_json_path = path.join("package.json");
 
-            let pkg_json_string = fs::read_to_string(&pkg_json_path)?;
+            let pkg_json_string = fs::read_to_string(&pkg_json_path)
+                .with_context(|| format!("Failed to read file at {}", pkg_json_path.display()))?;
 
             let package_globs: Option<Vec<String>> = match package_manager {
                 PackageManager::NPM | PackageManager::Yarn => {
                     let pkg_json: PackageJsonForNpmOrYarnWorkspaceConfig =
-                        serde_json::from_str(&pkg_json_string)?;
+                        serde_json::from_str(&pkg_json_string).with_context(|| {
+                            format!(
+                                "Failed to deserialize package.json at {}",
+                                pkg_json_path.display()
+                            )
+                        })?;
                     pkg_json.workspaces.map(|config| match config {
                         NpmOrYarnWorkspaceConfig::Nested { packages }
                         | NpmOrYarnWorkspaceConfig::Packages(packages) => packages,
                     })
                 }
                 PackageManager::PNPM => {
-                    match fs::read_to_string(path.join("pnpm-workspace.yaml")) {
+                    let pnpm_workspace_path = path.join("pnpm-workspace.yaml");
+                    match fs::read_to_string(&pnpm_workspace_path) {
                         Ok(contents) => {
                             let config: PnpmWorkspaceConfig = serde_yaml::from_str(&contents)?;
                             Some(config.packages)
                         }
                         Err(err) if err.kind() == ErrorKind::NotFound => None,
-                        Err(err) => return Err(err.into()),
+                        Err(err) => {
+                            return Err(err).context(format!(
+                                "Failed to read {}",
+                                pnpm_workspace_path.display()
+                            ))
+                        }
                     }
                 }
             };
@@ -206,16 +214,28 @@ impl Project {
 
             return Ok(Project {
                 manager: package_manager,
-                packages: package_globs.map(|globs| {
-                    find_packages(path, globs)
-                        .into_iter()
-                        .map(|path| {
-                            let pkg = Package::find(path.parent().unwrap()).unwrap();
-                            let name = pkg.pkg_json.name.clone();
-                            (name, pkg)
-                        })
-                        .collect()
-                }),
+                packages: match package_globs {
+                    Some(globs) => {
+                        let packages_result: anyhow::Result<HashMap<PackageName, Package>> =
+                            find_packages(path, globs)
+                                .into_iter()
+                                .map(|path| -> anyhow::Result<(PackageName, Package)> {
+                                    let pkg = Package::find(path.parent().unwrap()).with_context(
+                                        || {
+                                            format!(
+                                                "Failed to load package with package.json at {}",
+                                                path.display()
+                                            )
+                                        },
+                                    )?;
+                                    let name = pkg.pkg_json.name.clone();
+                                    Ok((name, pkg))
+                                })
+                                .collect();
+                        Some(packages_result?)
+                    }
+                    None => None,
+                },
                 root: Package {
                     pkg_json: pkg_json_string.parse()?,
                     pkg_json_path,
@@ -225,7 +245,7 @@ impl Project {
         if let Some(parent_path) = path.parent() {
             Project::find(parent_path)
         } else {
-            Err(Error::CouldNotFindLockfile)
+            anyhow::bail!("Could not find lockfile")
         }
     }
 }

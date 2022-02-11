@@ -1,4 +1,5 @@
-use crate::{Error, PackageName};
+use crate::PackageName;
+use anyhow::Context;
 use linked_hash_map::LinkedHashMap as InsertionOrderMap;
 use serde::{
     de::{self, Visitor},
@@ -60,17 +61,18 @@ impl PackageJson {
         }
         old_version
     }
-    pub fn write(&self, path: &Path) -> std::io::Result<()> {
+    pub fn write(&self, path: &Path) -> anyhow::Result<()> {
         let mut stringified = serde_json::to_string_pretty(self)?;
         stringified.push('\n');
         std::fs::write(path, stringified)
+            .with_context(|| format!("Failed to write file at {}", path.display()))
     }
 }
 
 impl FromStr for PackageJson {
-    type Err = Error;
+    type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(serde_json::from_str(s)?)
+        Ok(serde_json::from_str(s).context("Failed to deserialize package.json")?)
     }
 }
 

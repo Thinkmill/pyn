@@ -1,37 +1,19 @@
+use anyhow::Context;
 pub(crate) use package_name::PackageName;
 use project::{Package, Project};
 use serde::Deserialize;
 use std::{
     env,
     ffi::OsStr,
-    fmt, io,
+    fmt,
     path::{Path, PathBuf},
     process::{exit, Command},
 };
 use structopt::StructOpt;
-use thiserror::Error;
 
 mod package_json;
 mod package_name;
 mod project;
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("No lockfile could be found. If you haven't used a package manager in this project yet, please do that first to generate a lockfile")]
-    CouldNotFindLockfile,
-    #[error("Could not find a script or binary named {0}")]
-    CouldNotFindScriptOrBinary(String),
-    #[error("Child process exited with {0}")]
-    ChildProcessExit(i32),
-    #[error("{0}")]
-    Io(#[from] io::Error),
-    #[error("{0}")]
-    SerdeJson(#[from] serde_json::Error),
-    #[error("{0}")]
-    SerdeYaml(#[from] serde_yaml::Error),
-}
-
-type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Deserialize)]
 struct RegistryMetadata {
@@ -44,10 +26,7 @@ struct DistTags {
     latest: String,
 }
 
-async fn get_npm_package_version(
-    client: reqwest::Client,
-    package: &str,
-) -> std::result::Result<String, reqwest::Error> {
+async fn get_npm_package_version(client: reqwest::Client, package: &str) -> anyhow::Result<String> {
     let pkg_json = client
         .get(format!("https://registry.npmjs.org/{}", package))
         .header(
@@ -55,16 +34,18 @@ async fn get_npm_package_version(
             "application/vnd.npm.install-v1+json",
         )
         .send()
-        .await?
+        .await
+        .with_context(|| format!("Failed to fetch metadata for package {}", package))?
         .json::<RegistryMetadata>()
-        .await?;
+        .await
+        .with_context(|| format!("Failed to deserialize for package {}", package))?;
     Ok(pkg_json.dist_tags.latest)
 }
 
 #[tokio::main]
 async fn get_latest_versions(
     packages: Vec<PackageName>,
-) -> std::result::Result<Vec<(PackageName, String)>, reqwest::Error> {
+) -> anyhow::Result<Vec<(PackageName, String)>> {
     let client = reqwest::Client::new();
     let mut futures_unordered = futures::stream::FuturesOrdered::new();
     for pkg in packages {
@@ -130,26 +111,27 @@ impl PackageManager {
     }
 }
 
-fn run_package_manager_at_project_root<S: AsRef<OsStr>>(
+fn run_package_manager_at_project_root<S: AsRef<OsStr> + std::fmt::Debug>(
     project: &Project,
     args: &[S],
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let status = project
         .manager
         .cmd()
         .args(args)
         .current_dir(project.dir())
-        .status()?;
+        .status()
+        .with_context(|| format!("Failed to run {} with args: {:?}", project.manager, args))?;
 
     let code = status.code().unwrap_or(1);
     if code == 0 {
         Ok(())
     } else {
-        Err(Error::ChildProcessExit(code))
+        exit(code)
     }
 }
 
-fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
+fn find_binary_location(current_dir: &Path, binary: &str) -> anyhow::Result<PathBuf> {
     let mut path = current_dir.to_owned();
     path.push("node_modules/.bin/");
     path.push(binary);
@@ -158,26 +140,39 @@ fn find_binary_location(current_dir: &Path, binary: &str) -> Result<PathBuf> {
     } else if let Some(parent) = current_dir.parent() {
         find_binary_location(parent, binary)
     } else {
-        Err(Error::CouldNotFindScriptOrBinary(binary.to_owned()))
+        anyhow::bail!("Could not find script or binary named {}", binary);
     }
 }
 
 // TODO: do script running in rust rather than offloading to the package manager
 // (i'm not totally sure about that)
-fn run_script_or_binary(current_dir: &Path, project: &Project, args: &[String]) -> Result<()> {
+fn run_script_or_binary(
+    current_dir: &Path,
+    project: &Project,
+    args: &[String],
+) -> anyhow::Result<()> {
     let pkg = &project.closest_pkg(current_dir).unwrap().pkg_json;
     let bin = args[0].as_ref();
     let status = if pkg.scripts.contains_key(bin) {
-        project.manager.cmd().arg("run").args(args).status()?
+        project
+            .manager
+            .cmd()
+            .arg("run")
+            .args(args)
+            .status()
+            .with_context(|| format!("Failed to run {} run with args {args:?}", project.manager))?
     } else {
         let binary = find_binary_location(current_dir, &bin)?;
-        Command::new(binary).args(&args[1..]).status()?
+        Command::new(&binary)
+            .args(&args[1..])
+            .status()
+            .with_context(|| format!("Failed to run {} args {args:?}", binary.display()))?
     };
     let code = status.code().unwrap_or(1);
     if code == 0 {
         Ok(())
     } else {
-        Err(Error::ChildProcessExit(code))
+        exit(code)
     }
 }
 
@@ -236,10 +231,10 @@ fn add(
     current_dir: &Path,
     dependencies: Vec<PackageName>,
     dev: bool,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let mut pkg = project.closest_pkg(&current_dir).unwrap().clone();
 
-    let deps_with_latests = get_latest_versions(dependencies).unwrap();
+    let deps_with_latests = get_latest_versions(dependencies)?;
 
     for (dep, latest_version) in deps_with_latests {
         let existing_versions = project.find_dependents(&dep);
@@ -281,8 +276,8 @@ fn add(
     Ok(())
 }
 
-fn upgrade(project: &mut Project, dependencies: Vec<PackageName>) -> Result<()> {
-    let deps_with_latests = get_latest_versions(dependencies).unwrap();
+fn upgrade(project: &mut Project, dependencies: Vec<PackageName>) -> anyhow::Result<()> {
+    let deps_with_latests = get_latest_versions(dependencies)?;
 
     for (dep, latest_version) in deps_with_latests {
         let existing_versions = project.find_dependents(&dep);
@@ -303,7 +298,7 @@ fn upgrade(project: &mut Project, dependencies: Vec<PackageName>) -> Result<()> 
                             &dep, old_version, latest_version, pkg.pkg_json.name
                         );
                         // write the updated package.json back to disk
-                        pkg.write().unwrap();
+                        pkg.write()?;
                     }
                     None => {}
                 }
@@ -313,12 +308,12 @@ fn upgrade(project: &mut Project, dependencies: Vec<PackageName>) -> Result<()> 
     Ok(())
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let opt = Opts::from_args()
         .subcommand
         .unwrap_or_else(|| Subcommand::Other(vec!["install".to_owned()]));
     let current_dir = env::current_dir().unwrap();
-    let mut project = Project::find(&current_dir).unwrap();
+    let mut project = Project::find(&current_dir)?;
     match opt {
         Subcommand::Scripts => {
             let pkg_json = &project.closest_pkg(&current_dir).unwrap().pkg_json;
@@ -330,10 +325,10 @@ fn main() {
             dev,
         } => {
             // add the dependency
-            add(&mut project, &current_dir, dependencies, dev).unwrap();
+            add(&mut project, &current_dir, dependencies, dev)?;
             // run install
             if !skip_install {
-                run_package_manager_at_project_root(&project, &["install"]).unwrap();
+                run_package_manager_at_project_root(&project, &["install"])?;
             }
         }
         Subcommand::Upgrade {
@@ -341,10 +336,10 @@ fn main() {
             skip_install,
         } => {
             // add the dependency
-            upgrade(&mut project, dependencies).unwrap();
+            upgrade(&mut project, dependencies)?;
             // run install
             if !skip_install {
-                run_package_manager_at_project_root(&project, &["install"]).unwrap();
+                run_package_manager_at_project_root(&project, &["install"])?;
             }
         }
         Subcommand::Remove {
@@ -353,13 +348,14 @@ fn main() {
             skip_install,
         } => {
             println!("Removing {:?}", dependencies);
-            let do_remove = |pkg: &mut Package| {
+            let do_remove = |pkg: &mut Package| -> anyhow::Result<()> {
                 // remove the dependencies
                 for dep in &dependencies {
                     pkg.pkg_json.remove_dep(dep);
                 }
                 // write the updated package.json back to disk
-                pkg.write().unwrap();
+                pkg.write()?;
+                Ok(())
             };
             if everywhere {
                 match &mut project.packages {
@@ -372,35 +368,23 @@ fn main() {
                     }
                 };
                 for pkg in project.iter_mut() {
-                    do_remove(pkg);
+                    do_remove(pkg)?;
                 }
                 // Loop and call do_remove
             } else {
                 // find the closest package json
                 let pkg = project.closest_pkg_mut(&current_dir).unwrap();
-                do_remove(pkg)
+                do_remove(pkg)?;
             }
             // run install
             if !skip_install {
-                run_package_manager_at_project_root(&project, &["install"]).unwrap();
+                run_package_manager_at_project_root(&project, &["install"])?;
             }
         }
-        Subcommand::Other(args) => {
-            let result = match args.get(0).unwrap().as_str() {
-                "add" | "install" | "remove" | "why" => {
-                    run_package_manager_at_project_root(&project, &args)
-                }
-                _ => run_script_or_binary(&current_dir, &project, &args),
-            };
-            if let Err(err) = result {
-                match err {
-                    Error::ChildProcessExit(code) => std::process::exit(code),
-                    _ => {
-                        eprintln!("{}", err);
-                        std::process::exit(1);
-                    }
-                }
-            }
-        }
+        Subcommand::Other(args) => match args.get(0).unwrap().as_str() {
+            "install" | "why" => run_package_manager_at_project_root(&project, &args),
+            _ => run_script_or_binary(&current_dir, &project, &args),
+        }?,
     }
+    Ok(())
 }
