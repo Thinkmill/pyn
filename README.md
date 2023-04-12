@@ -2,7 +2,7 @@
 
 Neat little package manager helper for JavaScript projects.
 
-@mitchellhamilton and @JedWatson's rust experiment, generally undocumented,
+@emmatown and @JedWatson's rust experiment, generally undocumented,
 pretty handy in your terminal.
 
 ## Roadmap
