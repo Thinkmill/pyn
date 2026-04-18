@@ -26,7 +26,10 @@ struct DistTags {
     latest: String,
 }
 
-async fn get_npm_package_version(client: reqwest::Client, package: &str) -> anyhow::Result<String> {
+async fn get_npm_package_version(
+    client: &reqwest::Client,
+    package: &str,
+) -> anyhow::Result<String> {
     let pkg_json = client
         .get(format!("https://registry.npmjs.org/{}", package))
         .header(
@@ -47,41 +50,20 @@ async fn get_latest_versions(
     packages: Vec<PackageName>,
 ) -> anyhow::Result<Vec<(PackageName, String)>> {
     let client = reqwest::Client::new();
-    let mut futures_unordered = futures::stream::FuturesOrdered::new();
-    for pkg in packages {
-        let client = client.clone();
-        futures_unordered.push(async move {
-            get_npm_package_version(client, pkg.as_str())
-                .await
-                .map(|version| (pkg, version))
+    use futures::{stream, StreamExt, TryStreamExt};
+
+    stream::iter(packages)
+        .map(|pkg| {
+            let client = &client;
+            async move {
+                get_npm_package_version(client, pkg.as_str())
+                    .await
+                    .map(|version| (pkg, version))
+            }
         })
-    }
-    use futures::TryStreamExt;
-    futures_unordered.try_collect().await
-}
-
-#[test]
-fn test_get_latest_versions() {
-    let react_name = PackageName::try_from("react").unwrap();
-    let react_dom_name = PackageName::try_from("react-dom").unwrap();
-    let mut result = get_latest_versions(vec![react_name.clone(), react_dom_name.clone()]).unwrap();
-    result.sort();
-    assert_eq!(
-        result,
-        vec![
-            (react_name, "17.0.2".into()),
-            (react_dom_name, "17.0.2".into())
-        ]
-    )
-}
-
-// This will keep breaking as the version of react changes, use for debug at will
-#[tokio::test]
-async fn get_latest_version_of_react() {
-    let result = get_npm_package_version(Default::default(), "react")
+        .buffer_unordered(16)
+        .try_collect()
         .await
-        .unwrap();
-    assert_eq!(result, "17.0.2")
 }
 
 #[derive(Debug, Clone, Copy)]
