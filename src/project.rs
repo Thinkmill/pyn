@@ -11,7 +11,7 @@ use std::{
 
 #[derive(Debug, Deserialize)]
 struct PnpmWorkspaceConfig {
-    packages: Vec<String>,
+    packages: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -193,7 +193,7 @@ impl Project {
                     match fs::read_to_string(&pnpm_workspace_path) {
                         Ok(contents) => {
                             let config: PnpmWorkspaceConfig = serde_yaml::from_str(&contents)?;
-                            Some(config.packages)
+                            config.packages
                         }
                         Err(err) if err.kind() == ErrorKind::NotFound => None,
                         Err(err) => {
